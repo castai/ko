@@ -1,0 +1,11 @@
+dist
+bin
+node_modules
+.idea
+.cache
+.venv
+.devbox
+.DS_Store
+.vscode
+__snapshot__
+local
