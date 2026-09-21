@@ -1,0 +1,127 @@
+{
+  "lockfile_version": "1",
+  "packages": {
+    "bpftop@latest": {
+      "last_modified": "2026-08-27T07:16:00Z",
+      "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#bpftop",
+      "source": "devbox-search",
+      "version": "0.9.0",
+      "systems": {
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/gmm0q75ik51z7iwdnagcap64msb50mcc-bpftop-0.9.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/gmm0q75ik51z7iwdnagcap64msb50mcc-bpftop-0.9.0"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/9pqmw61gjnwdn5jc2q8ryvszldwa0sv7-bpftop-0.9.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/9pqmw61gjnwdn5jc2q8ryvszldwa0sv7-bpftop-0.9.0"
+        }
+      }
+    },
+    "clang_22@latest": {
+      "last_modified": "2026-08-27T07:16:00Z",
+      "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#clang_22",
+      "source": "devbox-search",
+      "version": "22.1.8",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8vmbwygxmbn970pm5829w38vbd4s6r2y-clang-wrapper-22.1.8",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/8vmbwygxmbn970pm5829w38vbd4s6r2y-clang-wrapper-22.1.8"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/y3dqha8z4z71b6hyby42mfs0wnk844jq-clang-wrapper-22.1.8",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/y3dqha8z4z71b6hyby42mfs0wnk844jq-clang-wrapper-22.1.8"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/kygzd9izydpi8sgwn43jjd5nqvnh65k4-clang-wrapper-22.1.8",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/kygzd9izydpi8sgwn43jjd5nqvnh65k4-clang-wrapper-22.1.8"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/nk8h9kbf7vs2knxmicgymxivan9xksxs-clang-wrapper-22.1.8",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/nk8h9kbf7vs2knxmicgymxivan9xksxs-clang-wrapper-22.1.8"
+        }
+      }
+    },
+    "github:NixOS/nixpkgs/nixpkgs-unstable": {
+      "last_modified": "2026-09-14T07:18:56Z",
+      "resolved": "github:NixOS/nixpkgs/c7def046b9a883d46974757852106483d741586f?lastModified=1789370336&narHash=sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4%3D"
+    },
+    "go@1.26": {
+      "last_modified": "2026-08-27T07:16:00Z",
+      "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#go",
+      "source": "devbox-search",
+      "version": "1.26.7",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/jdgrfinlrf89z3wdfa6ipr1chpny5v11-go-1.26.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/jdgrfinlrf89z3wdfa6ipr1chpny5v11-go-1.26.7"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/zbm0p3qbd92i7gj78rxajka9yvdrin7p-go-1.26.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/zbm0p3qbd92i7gj78rxajka9yvdrin7p-go-1.26.7"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/i77g9dmcd399rmxk8688qfr4g2wzgk37-go-1.26.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/i77g9dmcd399rmxk8688qfr4g2wzgk37-go-1.26.7"
+        }
+      }
+    },
+    "llvm_22": {
+      "resolved": "github:NixOS/nixpkgs/c7def046b9a883d46974757852106483d741586f?narHash=sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4%3D#llvm_22",
+      "source": "nixpkg"
+    }
+  }
+}

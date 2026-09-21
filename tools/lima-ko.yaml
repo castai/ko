@@ -1,0 +1,46 @@
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+cpus: 2
+memory: "4GiB"
+mounts:
+  - location: "~"
+    writable: true
+containerd:
+  system: false
+  user: false
+provision:
+  - mode: dependency
+    script: |
+      #!/bin/bash
+
+      set -eux -o pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update && apt-get upgrade -y
+
+  - mode: dependency
+    script: |
+      #!/bin/bash
+
+      set -eux -o pipefail
+      curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+      
+      nix profile install nixpkgs#devbox
+
+
+  # Increase file watches limit.
+  - mode: system
+    script: |
+      #!/bin/sh
+      sysctl fs.inotify.max_user_watches=524288
+      sysctl fs.inotify.max_user_instances=512
+
+mountType: "virtiofs"
+vmType: "vz"
+networks:
+  - vzNAT: true
+rosetta:
+  enabled: true
+  binfmt: true

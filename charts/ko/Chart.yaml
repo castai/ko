@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ko
+description: k8s observability agent tracing TCP socket events
+type: application
+version: 0.1.0
+appVersion: 0.1.0

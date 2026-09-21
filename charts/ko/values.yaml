@@ -1,0 +1,53 @@
+image:
+  repository: ghcr.io/castai/ko
+  # Defaults to the chart appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Host path of the containerd socket serving the CRI API. Mounted at the
+# same path into the container.
+containerd:
+  socketPath: /run/containerd/containerd.sock
+
+# Host path of the tracefs mount. Resolving tracepoint IDs requires
+# tracefs inside the container; it is always mounted at /sys/kernel/tracing.
+# On hosts without a standalone tracefs mount, point this to
+# /sys/kernel/debug/tracing instead.
+tracefsPath: /sys/kernel/tracing
+
+# Agent configuration rendered to config.yaml. Templated with tpl,
+# so Helm expressions like {{ .Release.Name }} can be used inside.
+config: |
+  exporters:
+    - name: stdout
+
+jsonLog: false
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: false
+
+priorityClassName: system-node-critical
+
+podAnnotations: {}
+podLabels: {}
+
+updateStrategy: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+# The agent must observe every node, including control-plane hosts.
+tolerations:
+  - operator: Exists
+
+affinity: {}

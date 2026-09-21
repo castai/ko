@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ko.nodeAgentName" . }}
+  labels: {{- include "ko.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "ko.selectorLabels" . | nindent 6 }}
+  updateStrategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels: {{- include "ko.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "ko.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ko
+          image: {{ include "ko.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - node-agent
+            - --config
+            - /etc/ko/config.yaml
+          env:
+            - name: JSON_LOG
+              value: {{ .Values.jsonLog | quote }}
+          # Loading eBPF programs and attaching tracepoints requires
+          # privileged access.
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: containerd-sock
+              mountPath: {{ .Values.containerd.socketPath }}
+            - name: sysfs-cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+              readOnly: true
+            - name: config
+              mountPath: /etc/ko/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: containerd-sock
+          hostPath:
+            path: {{ .Values.containerd.socketPath }}
+            type: Socket
+        - name: sysfs-cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: tracefs
+          hostPath:
+            path: {{ .Values.tracefsPath }}
+            type: Directory
+        - name: config
+          configMap:
+            name: {{ include "ko.nodeAgentName" . }}-config

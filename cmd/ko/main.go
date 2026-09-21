@@ -1,29 +1,32 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"github.com/castai/ko/cmd/ko/app"
-	"github.com/castai/ko/pkg/tracer"
-	"github.com/castai/logging"
 	"os"
-	"os/signal"
-	"syscall"
+
+	"github.com/spf13/cobra"
+
+	clusteragent "github.com/castai/ko/cmd/ko/cluster-agent"
+	nodeagent "github.com/castai/ko/cmd/ko/node-agent"
+	"github.com/castai/logging"
 )
+
+// version is injected at build time via -ldflags.
+var version = "dev"
 
 func main() {
 	log := logging.New()
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	log.Infof("ko %s", version)
 
-	if err := run(ctx, log); err != nil && !errors.Is(err, context.Canceled) {
+	root := &cobra.Command{
+		Use:          "ko",
+		Short:        "k8s observability agent",
+		SilenceUsage: true,
+	}
+	root.AddCommand(nodeagent.NewCommand(log))
+	root.AddCommand(clusteragent.NewCommand(log))
+
+	if err := root.Execute(); err != nil {
 		log.Error(err.Error())
 		os.Exit(1)
 	}
-}
-
-func run(ctx context.Context, log *logging.Logger) error {
-	tr := tracer.New(log)
-	instance := app.New(tr)
-	return instance.Run(ctx)
 }
