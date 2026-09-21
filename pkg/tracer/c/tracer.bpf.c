@@ -9,6 +9,8 @@
 #define TCP_ESTABLISHED 1
 #define TCP_SYN_SENT    2
 #define TCP_CLOSE       7
+#define TCP_TIME_WAIT   6
+#define TCP_NEW_SYN_RECV 12
 
 #define IPPROTO_TCP 6
 
@@ -185,6 +187,15 @@ static __always_inline bool sock_read_endpoints(u64 skaddr, u16 *family, u16 *sp
     if (*family != AF_INET && *family != AF_INET6)
         return false;
 
+    // TIME_WAIT and request mini-sockets only carry sock_common: inet_sport
+    // lives past their bounds and reads as garbage. Skip them.
+    u8 state = 0;
+    BPF_CORE_READ_INTO(&state, sk, __sk_common.skc_state);
+    if (state == TCP_TIME_WAIT || state == TCP_NEW_SYN_RECV)
+        return false;
+
+    // TIME_WAIT and request mini-sockets only carry sock_common: inet_sport
+    // lives past their bounds and reads as garbage. Skip them.
     // The local port is read from inet_sport: unlike skc_num it survives the
     // socket teardown that precedes the close state transition.
     u16 sport_be = 0;
@@ -212,8 +223,9 @@ static __always_inline bool sock_read_endpoints(u64 skaddr, u16 *family, u16 *sp
     return true;
 }
 
-// Base for events raised on the raw tcp:* tracepoints: enrich with pid/comm
-// when the sock was seen connecting earlier, otherwise pid stays zero.
+// Base for events raised on the raw tcp:* tracepoints. Only sockets seen
+// connecting earlier are reported: without pid/cgroup an event cannot be
+// correlated to a workload.
 static __always_inline void submit_sk_evt(u64 skaddr, u16 type)
 {
     if (!skaddr)
@@ -227,20 +239,19 @@ static __always_inline void submit_sk_evt(u64 skaddr, u16 type)
         return;
 
     conn_ctx_t *cctx = bpf_map_lookup_elem(&ko_sock_ctx, &skaddr);
+    if (!cctx)
+        return;
 
+    // bpf_ringbuf_reserve does not zero the record: stale bytes from
+    // previously consumed records leak into fields this path does not set.
     struct conn_event_t *e = bpf_ringbuf_reserve(&ko_events, sizeof(*e), 0);
     if (!e)
         return;
+    __builtin_memset(e, 0, sizeof(*e));
 
-    u32 pid = 0;
-    u64 cgroup_id = 0;
-    if (cctx) {
-        pid = cctx->pid;
-        cgroup_id = cctx->cgroup_id;
-        e->pid = pid;
-        e->cgroup_id = cgroup_id;
-        __builtin_memcpy(e->comm, cctx->comm, sizeof(e->comm));
-    }
+    e->pid = cctx->pid;
+    e->cgroup_id = cctx->cgroup_id;
+    __builtin_memcpy(e->comm, cctx->comm, sizeof(e->comm));
 
     e->type = type;
     e->family = family;
@@ -249,7 +260,7 @@ static __always_inline void submit_sk_evt(u64 skaddr, u16 type)
     fill_addrs(e, family, &addrs);
 
     stats_key_t k = {};
-    stats_key_fill(&k, cgroup_id, pid, family, dport, &addrs);
+    stats_key_fill(&k, cctx->cgroup_id, cctx->pid, family, dport, &addrs);
     stats_into_event(&k, e);
 
     e->ts = bpf_ktime_get_ns();
@@ -343,6 +354,7 @@ int ko_sock_state(struct sock_state_args *ctx)
     struct conn_event_t *e = bpf_ringbuf_reserve(&ko_events, sizeof(*e), 0);
     if (!e)
         return 0;
+    __builtin_memset(e, 0, sizeof(*e));
 
     e->pid = pid;
     e->cgroup_id = cgroup_id;
@@ -408,6 +420,7 @@ int ko_rtx_synack(struct sk_req_args *ctx)
     struct conn_event_t *e = bpf_ringbuf_reserve(&ko_events, sizeof(*e), 0);
     if (!e)
         return 0;
+    __builtin_memset(e, 0, sizeof(*e));
 
     e->type = CONN_EVT_RETRANSMIT_SYNACK;
     e->family = family;

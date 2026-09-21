@@ -4,7 +4,8 @@
     "go@1.26",
     "llvm_22",
     "clang_22@latest",
-    "bpftop@latest"
+    "bpftop@latest",
+    "kubectl@latest"
   ],
   "env": {
     "GOROOT": "$PWD/.devbox/nix/profile/default/share/go"
