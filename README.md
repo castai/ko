@@ -63,3 +63,22 @@ Aggregate fields (`ko_conn_rate`, `ko_conn_total`, `ko_rtt_avg_us`, `ko_life_avg
 | `ko_namespace` | containers | Pod namespace. |
 
 Container fields are present only when the event's cgroup resolves to a container.
+
+### Loki
+
+By default events are exported to stdout. Here are some example queries to get started.
+
+Rate by event type
+```
+sum by (ko_type) (
+  rate(
+    {namespace="ko"} | logfmt [1m]
+  )
+)
+```
+
+Grep all metrics
+
+```
+{namespace="ko"}
+```
