@@ -127,7 +127,9 @@ push_chart_oci() {
   cd "${CHART_DIR}"
 
   local pkg_file
-  pkg_file="$(helm package --version "${chart_version}" --app-version "${chart_version}" . | awk '{print $NF}')"
+  # appVersion carries the built image tag: the chart's default image.tag
+  # resolves to it, so installs need no --set image.tag.
+  pkg_file="$(helm package --version "${chart_version}" --app-version "${TAG}" . | awk '{print $NF}')"
 
   helm push "${pkg_file}" "oci://${CHART_REPOSITORY}"
   rm -f "${pkg_file}"
@@ -148,11 +150,11 @@ print_summary() {
   echo "  Helm upgrade command:" >&2
   echo "" >&2
   if [ "${PUSH_CHART}" = "true" ]; then
-    printf '  helm upgrade ko -n ko \\\n    oci://%s/ko \\\n    --version="%s" \\\n    --create-namespace \\\n    --set image.repository=%s \\\n    --set image.tag=%s\n' \
-      "${CHART_REPOSITORY}" "${chart_version}" "${IMAGE_REPOSITORY}" "${TAG}" >&2
+    printf '  helm upgrade ko -n ko \\\n    oci://%s/ko \\\n    --version="%s" \\\n    --create-namespace\n' \
+      "${CHART_REPOSITORY}" "${chart_version}" >&2
   else
-    printf '  helm upgrade ko -n ko \\\n    %s/charts/ko \\\n    --create-namespace \\\n    --set image.repository=%s \\\n    --set image.tag=%s\n' \
-      "${ROOT_DIR}" "${IMAGE_REPOSITORY}" "${TAG}" >&2
+    printf '  helm upgrade ko -n ko \\\n    %s/charts/ko \\\n    --create-namespace \\\n    --set image.tag=%s\n' \
+      "${ROOT_DIR}" "${TAG}" >&2
   fi
 }
 
