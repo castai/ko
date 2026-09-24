@@ -439,7 +439,9 @@ int ko_sock_state(struct sock_state_args *ctx)
             BPF_CORE_READ_INTO(&total_retrans, tp, total_retrans);
             BPF_CORE_READ_INTO(&segs_out, tp, segs_out);
             if (srtt_us) {
-                __sync_fetch_and_add(&s->rtt_sum_us, srtt_us);
+                // tp->srtt_us is stored shifted left by TCP_RTT_SHIFT (3)
+                // for the EWMA: unshift to real microseconds.
+                __sync_fetch_and_add(&s->rtt_sum_us, srtt_us >> 3);
                 __sync_fetch_and_add(&s->rtt_count, 1);
             }
             __sync_fetch_and_add(&s->rtx_sum, (u64) total_retrans);
