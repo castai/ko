@@ -1,5 +1,6 @@
 dist
 bin
+ko
 node_modules
 .idea
 .cache

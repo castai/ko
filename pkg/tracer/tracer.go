@@ -52,12 +52,58 @@ func (t EventType) String() string {
 	}
 }
 
+// CaState is the socket's congestion control state at retransmit time:
+// the discriminator between RTO and fast retransmits.
+type CaState uint8
+
+const (
+	CaOpen CaState = iota
+	CaDisorder
+	CaCWR
+	CaRecovery // fast retransmit (ordinary loss)
+	CaLoss     // RTO fired (stall/blackhole)
+)
+
+func (c CaState) String() string {
+	switch c {
+	case CaOpen:
+		return "open"
+	case CaDisorder:
+		return "disorder"
+	case CaCWR:
+		return "cwr"
+	case CaRecovery:
+		return "fast_retransmit"
+	case CaLoss:
+		return "rto"
+	default:
+		return fmt.Sprintf("ca(%d)", uint8(c))
+	}
+}
+
 type Option func(*Tracer)
 
 // WithEvents subscribes a channel to decoded connection events.
 func WithEvents(events chan<- ConnEvent) Option {
 	return func(t *Tracer) {
 		t.events = events
+	}
+}
+
+// Filter selects which connections the tracer reports.
+type Filter struct {
+	// IgnoreLoopback skips connections whose peer is on the same host
+	// (loopback destinations): self-connects, local health probes and
+	// other traffic that never touches the network. Filtering happens in
+	// the eBPF program, so ignored connections also skip the stats and
+	// context maps.
+	IgnoreLoopback bool `yaml:"ignoreLoopback"`
+}
+
+// WithFilter sets the tracer's connection filters.
+func WithFilter(f Filter) Option {
+	return func(t *Tracer) {
+		t.filter = f
 	}
 }
 
@@ -72,6 +118,7 @@ func New(log *logging.Logger, opts ...Option) *Tracer {
 type Tracer struct {
 	log    *logging.Logger
 	events chan<- ConnEvent
+	filter Filter
 }
 
 // ConnEvent is a TCP connection problem observed on the node.
@@ -88,9 +135,11 @@ type ConnEvent struct {
 	CgroupID    uint64
 	// Aggregates for this event's stats key
 	// (cgroup+pid+src_ip+dst_ip+dst_port), giving single events their
-	// baseline: ConnRate is connect attempts in the current 1s window,
-	// ConnCount the total; RTTAvgUS and LifeAvgUS are averages across
-	// previously established connections of the same key.
+	// baseline: ConnRate is connect attempts per second in the current
+	// or the last completed 1s window (whichever shows the higher rate),
+	// ConnCount the total; RTTAvgUS, LifeAvgUS and RetransRatioPM are
+	// aggregates across previously established connections of the same
+	// key.
 	ConnCount uint64
 	ConnRate  uint32
 	RTTAvgUS  uint32
@@ -100,6 +149,19 @@ type ConnEvent struct {
 	// aborted locally before the handshake resolved. Only set for
 	// EventTypeConnectFailed.
 	Errno uint32
+	// Retransmit payload, only set for EventTypeRetransmit.
+	CaState    CaState // Loss (rto) vs Recovery (fast_retransmit)
+	SegLen     uint32  // retransmitted segment size in bytes
+	SndWnd     uint32  // peer's advertised window: zero means a stuck receiver
+	PacketsOut uint32
+	// RetransmitCount is the retransmits the connection (or, for
+	// EventTypeRetransmitSynack, the handshake) already had before this
+	// event. Only retransmits that look like incidents are emitted at all:
+	// RTO-driven, zero-window or repeated ones, and the second SYN-ACK retry.
+	RetransmitCount uint8
+	// RetransRatioPM is retransmitted/sent segments in per-mille over
+	// the same stats key as the averages above.
+	RetransRatioPM uint32
 }
 
 // StatsSummary renders the aggregate context carried on the event.
@@ -110,6 +172,9 @@ func (e ConnEvent) StatsSummary() string {
 	}
 	if e.LifeAvgUS > 0 {
 		s += fmt.Sprintf(" life_avg=%s", formatMicros(float64(e.LifeAvgUS)))
+	}
+	if e.RetransRatioPM > 0 {
+		s += fmt.Sprintf(" retrans=%.1f%%", float64(e.RetransRatioPM)/10)
 	}
 	return s
 }
@@ -136,8 +201,19 @@ func (t *Tracer) Run(ctx context.Context) error {
 		return fmt.Errorf("remove memlock: %w", err)
 	}
 
+	spec, err := loadTracer()
+	if err != nil {
+		return fmt.Errorf("load bpf spec: %w", err)
+	}
+	v, ok := spec.Variables["ko_filter_ignore_loopback"]
+	if !ok {
+		return fmt.Errorf("bpf spec missing filter variable")
+	}
+	if err := v.Set(t.filter.IgnoreLoopback); err != nil {
+		return fmt.Errorf("set ignore_loopback filter: %w", err)
+	}
 	objs := tracerObjects{}
-	if err := loadTracerObjects(&objs, nil); err != nil {
+	if err := spec.LoadAndAssign(&objs, nil); err != nil {
 		return fmt.Errorf("load bpf objects: %w", err)
 	}
 	defer objs.Close()
@@ -211,24 +287,36 @@ func (t *Tracer) logEvent(event ConnEvent) {
 	if event.Type == EventTypeConnectFailed {
 		msg += " error=" + ErrnoString(event.Errno)
 	}
+	if event.Type == EventTypeRetransmit {
+		msg += fmt.Sprintf(" cause=%s seg=%d inflight=%d retransmits=%d", event.CaState, event.SegLen, event.PacketsOut, event.RetransmitCount)
+		if event.SndWnd == 0 {
+			msg += " snd_wnd=0"
+		}
+	}
 	t.log.Info(msg + " " + event.StatsSummary())
 }
 
 func decodeConnEvent(raw tracerConnEventT) ConnEvent {
 	event := ConnEvent{
-		Type:        EventType(raw.Type),
-		TimestampNS: raw.Ts,
-		Pid:         raw.Pid,
-		Comm:        cString(raw.Comm[:]),
-		LocalPort:   raw.LocalPort,
-		RemotePort:  raw.RemotePort,
-		Family:      raw.Family,
-		CgroupID:    raw.CgroupId,
-		ConnCount:   raw.ConnCount,
-		ConnRate:    raw.ConnRate,
-		RTTAvgUS:    raw.RttAvgUs,
-		LifeAvgUS:   raw.LifeAvgUs,
-		Errno:       raw.Error,
+		Type:            EventType(raw.Type),
+		TimestampNS:     raw.Ts,
+		Pid:             raw.Pid,
+		Comm:            cString(raw.Comm[:]),
+		LocalPort:       raw.LocalPort,
+		RemotePort:      raw.RemotePort,
+		Family:          raw.Family,
+		CgroupID:        raw.CgroupId,
+		ConnCount:       raw.ConnCount,
+		ConnRate:        raw.ConnRate,
+		RTTAvgUS:        raw.RttAvgUs,
+		LifeAvgUS:       raw.LifeAvgUs,
+		Errno:           raw.Error,
+		CaState:         CaState(raw.CaState),
+		SegLen:          raw.SegLen,
+		SndWnd:          raw.SndWnd,
+		PacketsOut:      raw.PacketsOut,
+		RetransRatioPM:  raw.RtxRatioPm,
+		RetransmitCount: raw.RtxCount,
 	}
 	switch raw.Family {
 	case afInet:

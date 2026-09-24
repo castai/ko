@@ -47,7 +47,7 @@ func run(ctx context.Context, log *logging.Logger, cfg config.Config) error {
 	}
 
 	events := make(chan tracer.ConnEvent, 256)
-	tr := tracer.New(log, tracer.WithEvents(events))
+	tr := tracer.New(log, tracer.WithEvents(events), tracer.WithFilter(cfg.Tracer.Filters))
 	instance := New(log, tr, kctx, events, exps...)
 	return instance.Run(ctx)
 }

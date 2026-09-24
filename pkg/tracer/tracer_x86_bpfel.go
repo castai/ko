@@ -39,6 +39,14 @@ type tracerConnEventT struct {
 	ConnRate   uint32
 	RttAvgUs   uint32
 	LifeAvgUs  uint64
+	SegLen     uint32
+	SndWnd     uint32
+	PacketsOut uint32
+	RtxRatioPm uint32
+	CaState    uint8
+	RtxCount   uint8
+	Pad        [2]uint8
+	_          [4]byte
 }
 
 type tracerStatsKeyT struct {
@@ -52,30 +60,33 @@ type tracerStatsKeyT struct {
 }
 
 type tracerStatsT struct {
-	_           structs.HostLayout
-	ConnCount   uint64
-	WindowStart uint64
-	ConnRate    uint32
-	Pad         uint32
-	RttSumUs    uint64
-	RttCount    uint64
-	LifeSumNs   uint64
-	LifeCount   uint64
+	_            structs.HostLayout
+	ConnCount    uint64
+	WindowStart  uint64
+	ConnRate     uint32
+	ConnRatePrev uint32
+	RttSumUs     uint64
+	RttCount     uint64
+	LifeSumNs    uint64
+	LifeCount    uint64
+	RtxSum       uint64
+	SegsSum      uint64
 }
 
 // Names of all BPF objects in the ELF.
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	tracerMapKoEvents       = "ko_events"
-	tracerMapKoSockCtx      = "ko_sock_ctx"
-	tracerMapKoSockStats    = "ko_sock_stats"
-	tracerProgKoDestroySock = "ko_destroy_sock"
-	tracerProgKoRecvReset   = "ko_recv_reset"
-	tracerProgKoRtxSkb      = "ko_rtx_skb"
-	tracerProgKoRtxSynack   = "ko_rtx_synack"
-	tracerProgKoSendReset   = "ko_send_reset"
-	tracerProgKoSockState   = "ko_sock_state"
+	tracerMapKoEvents               = "ko_events"
+	tracerMapKoSockCtx              = "ko_sock_ctx"
+	tracerMapKoSockStats            = "ko_sock_stats"
+	tracerProgKoDestroySock         = "ko_destroy_sock"
+	tracerProgKoRecvReset           = "ko_recv_reset"
+	tracerProgKoRtxSkb              = "ko_rtx_skb"
+	tracerProgKoRtxSynack           = "ko_rtx_synack"
+	tracerProgKoSendReset           = "ko_send_reset"
+	tracerProgKoSockState           = "ko_sock_state"
+	tracerVarKoFilterIgnoreLoopback = "ko_filter_ignore_loopback"
 )
 
 // loadTracer returns the embedded CollectionSpec for tracer.
@@ -141,6 +152,7 @@ type tracerMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerVariableSpecs struct {
+	KoFilterIgnoreLoopback *ebpf.VariableSpec `ebpf:"ko_filter_ignore_loopback"`
 }
 
 // tracerObjects contains all objects after they have been loaded into the kernel.
@@ -180,6 +192,7 @@ func (m *tracerMaps) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerVariables struct {
+	KoFilterIgnoreLoopback *ebpf.Variable `ebpf:"ko_filter_ignore_loopback"`
 }
 
 // tracerPrograms contains all programs after they have been loaded into the kernel.

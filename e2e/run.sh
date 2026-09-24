@@ -11,6 +11,9 @@ if kind get clusters 2>/dev/null | grep -q "^$CLUSTER$"; then
 fi
 kind create cluster --name "$CLUSTER" --config "$(dirname "$0")/kind-config.yaml"
 
+CGO_ENABLED=0 GOOS=linux GOARCH="$(docker version -f '{{.Server.Arch}}')" \
+  go build -trimpath -ldflags="-s -w -X main.version=$IMAGE_TAG" -o ko ./cmd/ko
+
 docker build -t "$IMAGE_REPO:$IMAGE_TAG" .
 
 kind load docker-image "$IMAGE_REPO:$IMAGE_TAG" --name "$CLUSTER"

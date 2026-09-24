@@ -19,6 +19,21 @@ exporters:
 	}
 }
 
+func TestParseTracerFilters(t *testing.T) {
+	cfg, err := Parse([]byte(`
+exporters: []
+tracer:
+  filters:
+    ignoreLoopback: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Tracer.Filters.IgnoreLoopback {
+		t.Fatalf("expected ignoreLoopback filter, got %+v", cfg.Tracer)
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	cfg, err := Parse([]byte(`exporters: []`))
 	if err != nil {

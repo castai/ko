@@ -20,6 +20,9 @@ tracefsPath: /sys/kernel/tracing
 config: |
   exporters:
     - name: stdout
+  tracer:
+    filters:
+      ignoreLoopback: true
 
 jsonLog: false
 
@@ -36,12 +39,15 @@ priorityClassName: ""
 podAnnotations: {}
 podLabels: {}
 
-updateStrategy: {}
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 100%
 
-resources:
-  requests:
-    cpu: 10m
-    memory: 64Mi
+resources: {}
+#  requests:
+#    cpu: 10m
+#    memory: 64Mi
 
 nodeSelector:
   kubernetes.io/os: linux

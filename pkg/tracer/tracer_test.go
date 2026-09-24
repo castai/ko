@@ -28,6 +28,12 @@ func TestDecodeConnEvent(t *testing.T) {
 		ConnRate:   3,
 		RttAvgUs:   1200,
 		LifeAvgUs:  2500000,
+		SegLen:     1448,
+		SndWnd:     0,
+		PacketsOut: 12,
+		RtxRatioPm: 25,
+		CaState:    uint8(CaLoss),
+		RtxCount:   7,
 	}
 	raw.LocalIp = [16]byte{127, 0, 0, 1}
 	raw.RemoteIp = [16]byte{10, 0, 0, 1}
@@ -40,7 +46,10 @@ func TestDecodeConnEvent(t *testing.T) {
 	if e.ConnCount != 7 || e.ConnRate != 3 || e.RTTAvgUS != 1200 || e.LifeAvgUS != 2500000 {
 		t.Fatalf("unexpected stats fields: %+v", e)
 	}
-	if s := e.StatsSummary(); s != "rate=3/s total=7 rtt_avg=1.2ms life_avg=2.5s" {
+	if e.CaState != CaLoss || e.CaState.String() != "rto" || e.SegLen != 1448 || e.SndWnd != 0 || e.PacketsOut != 12 || e.RetransRatioPM != 25 || e.RetransmitCount != 7 {
+		t.Fatalf("unexpected retransmit fields: %+v", e)
+	}
+	if s := e.StatsSummary(); s != "rate=3/s total=7 rtt_avg=1.2ms life_avg=2.5s retrans=2.5%" {
 		t.Fatalf("unexpected stats summary: %s", s)
 	}
 	if e.Type != EventTypeConnectFailed || e.Type.String() != "connect_failed" {
@@ -55,6 +64,39 @@ func TestDecodeConnEvent(t *testing.T) {
 	if ErrnoString(e.Errno) != "connection refused" {
 		t.Fatalf("unexpected errno string: %s", ErrnoString(e.Errno))
 	}
+}
+
+func freeTCPPort(network, host string) (int, error) {
+	l, err := net.Listen(network, net.JoinHostPort(host, "0"))
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+func nonLoopbackIPv4() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				if ip := ipnet.IP.To4(); ip != nil && !ip.IsLoopback() {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func TestTracerReportsConnectionFailures(t *testing.T) {
@@ -76,20 +118,11 @@ func TestTracerReportsConnectionFailures(t *testing.T) {
 		errCh <- tr.Run(ctx)
 	}()
 
-	freePort := func(network, host string) (int, error) {
-		l, err := net.Listen(network, net.JoinHostPort(host, "0"))
-		if err != nil {
-			return 0, err
-		}
-		defer l.Close()
-		return l.Addr().(*net.TCPAddr).Port, nil
-	}
-
-	port4, err := freePort("tcp", "127.0.0.1")
+	port4, err := freeTCPPort("tcp", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	port6, err := freePort("tcp", "::1")
+	port6, err := freeTCPPort("tcp", "::1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +204,87 @@ func TestTracerReportsConnectionFailures(t *testing.T) {
 	}
 	if !gotRX {
 		t.Errorf("no receive_reset event received")
+	}
+}
+
+// With IgnoreLoopback set, loopback peers must not produce events at all
+// (from any process), while a same-host non-loopback peer still does: that
+// is the positive control proving the filter matches addresses, not a
+// broken tracer.
+func TestTracerIgnoresLoopback(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping: requires Linux to load eBPF programs")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("skipping: requires root to load eBPF programs")
+	}
+
+	host := nonLoopbackIPv4()
+	if host == "" {
+		t.Skip("skipping: no non-loopback interface to test with")
+	}
+
+	events := make(chan ConnEvent, 64)
+	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{IgnoreLoopback: true}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tr.Run(ctx)
+	}()
+
+	port4, err := freeTCPPort("tcp", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port6, err := freeTCPPort("tcp", "::1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	portHost, err := freeTCPPort("tcp", host)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotHost bool
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) && !gotHost {
+		if conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port4)), time.Second); err == nil {
+			conn.Close()
+		}
+		if conn, err := net.DialTimeout("tcp", net.JoinHostPort("::1", strconv.Itoa(port6)), time.Second); err == nil {
+			conn.Close()
+		}
+		if conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(portHost)), time.Second); err == nil {
+			conn.Close()
+		}
+
+	wait:
+		for {
+			select {
+			case e := <-events:
+				if e.RemoteIP.IsLoopback() {
+					t.Fatalf("loopback event leaked through the filter: %+v", e)
+				}
+				if e.Type == EventTypeConnectFailed && e.RemotePort == uint16(portHost) && e.RemoteIP.Equal(net.ParseIP(host)) {
+					gotHost = true
+				}
+			case <-time.After(300 * time.Millisecond):
+				break wait
+			}
+		}
+
+		select {
+		case err := <-errCh:
+			t.Fatalf("tracer exited: %v", err)
+		default:
+		}
+	}
+
+	if !gotHost {
+		t.Errorf("no connect_failed event for non-loopback peer %s", host)
 	}
 }
 

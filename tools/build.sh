@@ -71,15 +71,41 @@ build_platforms() {
 }
 
 build_and_push_image() {
+  local archs
+  read -r -a archs <<< "${ARCHS//,/ }"
+
   log "building and pushing image: ${IMAGE_REPOSITORY}:${TAG} (${ARCHS})"
   cd "${ROOT_DIR}"
-  docker buildx build \
-    --builder "${BUILDER}" \
-    --platform "$(build_platforms)" \
-    --build-arg VERSION="${TAG}" \
-    -t "${IMAGE_REPOSITORY}:${TAG}" \
-    -f Dockerfile \
-    --push .
+
+  local tags=()
+  local arch
+  for arch in "${archs[@]}"; do
+    log "compiling linux/${arch} binary"
+    CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath \
+      -ldflags="-s -w -X main.version=${TAG}" \
+      -o ko ./cmd/ko
+
+    local image_tag="${IMAGE_REPOSITORY}:${TAG}"
+    if [ "${#archs[@]}" -gt 1 ]; then
+      image_tag="${image_tag}-${arch}"
+    fi
+    tags+=("${image_tag}")
+
+    docker buildx build \
+      --builder "${BUILDER}" \
+      --platform "linux/${arch}" \
+      -t "${image_tag}" \
+      -f Dockerfile \
+      --push .
+  done
+  rm -f ko
+
+  if [ "${#archs[@]}" -gt 1 ]; then
+    log "merging into multi-arch manifest: ${IMAGE_REPOSITORY}:${TAG}"
+    docker buildx imagetools create \
+      -t "${IMAGE_REPOSITORY}:${TAG}" \
+      "${tags[@]}"
+  fi
 }
 
 chart_version_from_tag() {
@@ -131,6 +157,11 @@ print_summary() {
 }
 
 main() {
+  if ! command -v go >/dev/null 2>&1; then
+    log "go is required to build the binary"
+    exit 1
+  fi
+
   log "build bundle"
   log "  image registry:   ${IMAGE_REPOSITORY}"
   log "  chart registry:   ${CHART_REPOSITORY}"

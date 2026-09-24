@@ -5,13 +5,21 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/castai/ko/pkg/tracer"
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the shared agent configuration. Both the node agent and the
 // cluster agent read the same file format.
 type Config struct {
-	Exporters []Exporter `yaml:"exporters"`
+	Exporters []Exporter   `yaml:"exporters"`
+	Tracer    TracerConfig `yaml:"tracer"`
+}
+
+// TracerConfig configures the eBPF connection tracer.
+type TracerConfig struct {
+	// Filters select which connections the tracer reports.
+	Filters tracer.Filter `yaml:"filters"`
 }
 
 type Exporter struct {
