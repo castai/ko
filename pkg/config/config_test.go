@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/castai/ko/pkg/conntest"
 )
 
 func TestParse(t *testing.T) {
@@ -31,6 +34,32 @@ tracer:
 	}
 	if !cfg.Tracer.Filters.IgnoreLoopback {
 		t.Fatalf("expected ignoreLoopback filter, got %+v", cfg.Tracer)
+	}
+}
+
+func TestParseConnTest(t *testing.T) {
+	cfg, err := Parse([]byte(`
+exporters: []
+metrics:
+  addr: ":9081"
+conntest:
+  enabled: true
+  listenPort: 9080
+  interval: 5s
+  timeout: 2s
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Metrics.Addr != ":9081" {
+		t.Fatalf("unexpected metrics config: %+v", cfg.Metrics)
+	}
+	ct := cfg.ConnTest
+	if !ct.Enabled || ct.ListenPort != 9080 {
+		t.Fatalf("unexpected conntest config: %+v", ct)
+	}
+	if ct.Interval != conntest.Duration(5*time.Second) || ct.Timeout != conntest.Duration(2*time.Second) {
+		t.Fatalf("unexpected conntest durations: %+v", ct)
 	}
 }
 

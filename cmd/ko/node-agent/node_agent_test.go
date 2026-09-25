@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -52,11 +53,32 @@ func TestApp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	instance := New(logging.New(), tr, nil, events, exp)
+	instance := New(logging.New(), tr, nil, events, nil, "127.0.0.1:0", exp)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- instance.Run(ctx)
 	}()
+
+	metricsDeadline := time.Now().Add(10 * time.Second)
+	for instance.MetricsAddr() == "" && time.Now().Before(metricsDeadline) {
+		select {
+		case err := <-errCh:
+			t.Fatalf("app exited: %v", err)
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if instance.MetricsAddr() == "" {
+		t.Fatal("metrics endpoint did not start")
+	}
+	resp, err := http.Get("http://" + instance.MetricsAddr() + "/metrics")
+	if err != nil {
+		t.Fatalf("scraping metrics: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("metrics status: %s", resp.Status)
+	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

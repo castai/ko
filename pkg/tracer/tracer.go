@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"sync"
 	"syscall"
 
 	"github.com/castai/logging"
@@ -108,7 +109,7 @@ func WithFilter(f Filter) Option {
 }
 
 func New(log *logging.Logger, opts ...Option) *Tracer {
-	t := &Tracer{log: log}
+	t := &Tracer{log: log, eventsReady: make(chan struct{})}
 	for _, opt := range opts {
 		opt(t)
 	}
@@ -116,9 +117,19 @@ func New(log *logging.Logger, opts ...Option) *Tracer {
 }
 
 type Tracer struct {
-	log    *logging.Logger
-	events chan<- ConnEvent
-	filter Filter
+	log         *logging.Logger
+	events      chan<- ConnEvent
+	filter      Filter
+	eventsReady chan struct{}
+	readyOnce   sync.Once
+}
+
+// EventsReady is closed once the tracer has read its first event from
+// the ring buffer. Connections established before that moment are not
+// tracked: components whose own connections must be observed (the
+// conntest mesh) wait for it before connecting.
+func (t *Tracer) EventsReady() <-chan struct{} {
+	return t.eventsReady
 }
 
 // ConnEvent is a TCP connection problem observed on the node.
@@ -257,6 +268,7 @@ func (t *Tracer) Run(ctx context.Context) error {
 			}
 			return fmt.Errorf("read ringbuf: %w", err)
 		}
+		t.readyOnce.Do(func() { close(t.eventsReady) })
 
 		var raw tracerConnEventT
 		if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &raw); err != nil {

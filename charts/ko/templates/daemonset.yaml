@@ -18,6 +18,7 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "ko.serviceAccountName" . }}
+      automountServiceAccountToken: {{ or .Values.serviceAccount.automountServiceAccountToken .Values.conntest.enabled }}
       {{- with .Values.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
@@ -41,6 +42,25 @@ spec:
           env:
             - name: JSON_LOG
               value: {{ .Values.jsonLog | quote }}
+            {{- if .Values.conntest.enabled }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metricsPort }}
+              protocol: TCP
+            {{- if .Values.conntest.enabled }}
+            - name: conntest
+              containerPort: {{ .Values.conntest.listenPort }}
+              protocol: TCP
+            {{- end }}
           # Loading eBPF programs and attaching tracepoints requires
           # privileged access.
           securityContext:

@@ -196,6 +196,12 @@ func TestTracerReportsConnectionFailures(t *testing.T) {
 		}
 	}
 
+	select {
+	case <-tr.EventsReady():
+	default:
+		t.Fatal("expected tracer to report readiness after receiving events")
+	}
+
 	if !gotV4 {
 		t.Errorf("no ipv4 connection failure event received")
 	}

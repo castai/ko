@@ -19,7 +19,7 @@ lima-generate:
 	$(LIMA) sh -c 'cd $(REPO) && $(DEVBOX_ENV) >/dev/null && go generate ./pkg/tracer'
 
 lima-test:
-	$(LIMA) sudo sh -c 'export GOMODCACHE=/home/anjmao.guest/go/pkg/mod; cd $(REPO) && $(DEVBOX_ENV) >/dev/null && go test ./pkg/tracer/ ./pkg/kontext/ ./cmd/ko/node-agent/ -skip "^TestTracer$$" -v -count=1'
+	$(LIMA) sudo sh -c 'export GOMODCACHE=/home/anjmao.guest/go/pkg/mod; cd $(REPO) && $(DEVBOX_ENV) >/dev/null && go test ./pkg/tracer/ ./pkg/conntest/ ./pkg/config/ ./pkg/kontext/ ./cmd/ko/node-agent/ -skip "^TestTracer$$" -v -count=1'
 
 lima-run:
 	$(LIMA) sudo sh -c 'cd $(REPO) && $(DEVBOX_ENV) >/dev/null && go run ./cmd/ko node-agent'

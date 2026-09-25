@@ -23,6 +23,29 @@ config: |
   tracer:
     filters:
       ignoreLoopback: true
+  metrics:
+    addr: ":{{ .Values.metricsPort }}"
+  {{- if .Values.conntest.enabled }}
+  conntest:
+    enabled: true
+    listenPort: {{ .Values.conntest.listenPort }}
+    interval: {{ .Values.conntest.interval }}
+    timeout: {{ .Values.conntest.timeout }}
+  {{- end }}
+
+# Prometheus /metrics endpoint served by the agent. Components
+# (conntest, and later ones) register their metrics on it when enabled.
+metricsPort: 9081
+
+# Mesh connectivity test: each pod probes every other ko pod over a
+# long-lived TCP connection and reports the results as Prometheus
+# metrics. Requires pods list/watch RBAC, which the chart creates
+# when enabled.
+conntest:
+  enabled: false
+  listenPort: 9080
+  interval: 5s
+  timeout: 2s
 
 jsonLog: false
 
