@@ -5,9 +5,9 @@ Ko is Kubernetes eBPF based issues detection and root cause tool. Currently, it 
 ## Install
 
 ```sh
-helm upgrade ko --install -n ko \
+  helm upgrade ko --install -n ko \
     oci://ghcr.io/castai/ko-chart/ko \
-    --version="0.0.0-dev.1790675032.anjmao.bf8051c" \
+    --version="0.0.0-dev.1790675576.anjmao.e0125e9" \
     --create-namespace
 ```
 
@@ -27,7 +27,7 @@ time=2026-09-29T11:22:01.605Z level=info msg=tcp_event ko_type=conn_closed ko_co
 
 | `ko_type` | Meaning |
 | --- | --- |
-| `connect_failed` | The connection attempt failed: the peer refused it (RST), it timed out, or it was aborted locally. See `ko_error`. |
+| `conn_failed` | The connection attempt failed: the peer refused it (RST), it timed out, or it was aborted locally. See `ko_error`. |
 | `conn_closed` | The connection ended: either side closed it, or it was aborted (reset, timeout). `ko_error` carries the cause when the close was not clean. |
 
 ### Fields

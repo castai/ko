@@ -31,7 +31,7 @@ func TestKo(t *testing.T) {
 
 		want := []string{
 			"msg=tcp_event",
-			"type=connect_failed",
+			"type=conn_failed",
 			"pod=bad-connector",
 			"namespace=" + namespace,
 			"container=bad-connector",

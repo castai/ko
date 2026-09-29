@@ -29,14 +29,14 @@ const (
 type EventType uint16
 
 const (
-	EventTypeConnectFailed EventType = iota + 1
+	EventTypeConnFailed EventType = iota + 1
 	EventTypeConnClosed
 )
 
 func (t EventType) String() string {
 	switch t {
-	case EventTypeConnectFailed:
-		return "connect_failed"
+	case EventTypeConnFailed:
+		return "conn_failed"
 	case EventTypeConnClosed:
 		return "conn_closed"
 	default:

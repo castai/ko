@@ -54,7 +54,7 @@ func TestApp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	instance := New(logging.New(), tr, nil, events, nil, "127.0.0.1:0", exp)
+	instance := New(logging.New(), tr, nil, events, "127.0.0.1:0", exp)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- instance.Run(ctx)
@@ -90,7 +90,7 @@ func TestApp(t *testing.T) {
 
 	want := []string{
 		"msg=tcp_event",
-		"type=connect_failed",
+		"type=conn_failed",
 		"remote_addr=127.0.0.1:" + strconv.Itoa(port),
 		"pid=" + strconv.Itoa(os.Getpid()),
 		"life_us=",

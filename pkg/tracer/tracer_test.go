@@ -23,7 +23,7 @@ func TestDecodeConnEvent(t *testing.T) {
 		Family:      afInet,
 		LocalPort:   54321,
 		RemotePort:  80,
-		Type:        uint16(EventTypeConnectFailed),
+		Type:        uint16(EventTypeConnFailed),
 		LifeUs:      2500000,
 		RttUs:       1200,
 		Retransmits: 7,
@@ -43,7 +43,7 @@ func TestDecodeConnEvent(t *testing.T) {
 	if s := e.StatsSummary(); s != "life=2.5s rtt=1.2ms retrans=7/120" {
 		t.Fatalf("unexpected stats summary: %s", s)
 	}
-	if e.Type != EventTypeConnectFailed || e.Type.String() != "connect_failed" {
+	if e.Type != EventTypeConnFailed || e.Type.String() != "conn_failed" {
 		t.Fatalf("unexpected event type: %+v", e.Type)
 	}
 	if EventTypeConnClosed.String() != "conn_closed" {
@@ -164,12 +164,12 @@ func TestTracerReportsConnectionFailures(t *testing.T) {
 						t.Fatalf("unexpected conn_closed event: %+v", e)
 					}
 					gotClosed = true
-				case e.Type == EventTypeConnectFailed && e.RemoteIP.Equal(net.ParseIP("127.0.0.1")) && e.RemotePort == uint16(port4):
+				case e.Type == EventTypeConnFailed && e.RemoteIP.Equal(net.ParseIP("127.0.0.1")) && e.RemotePort == uint16(port4):
 					if e.Errno != uint32(syscall.ECONNREFUSED) || e.Pid != uint32(os.Getpid()) || e.LocalPort == 0 {
 						t.Fatalf("unexpected ipv4 event: %+v", e)
 					}
 					gotV4 = e.LifeUS > 0
-				case e.Type == EventTypeConnectFailed && e.RemoteIP.Equal(net.ParseIP("::1")) && e.RemotePort == uint16(port6):
+				case e.Type == EventTypeConnFailed && e.RemoteIP.Equal(net.ParseIP("::1")) && e.RemotePort == uint16(port6):
 					if e.Errno != uint32(syscall.ECONNREFUSED) || e.Family != afInet6 {
 						t.Fatalf("unexpected ipv6 event: %+v", e)
 					}
@@ -265,7 +265,7 @@ func TestTracerIgnoresLoopback(t *testing.T) {
 				if e.RemoteIP.IsLoopback() {
 					t.Fatalf("loopback event leaked through the filter: %+v", e)
 				}
-				if e.Type == EventTypeConnectFailed && e.RemotePort == uint16(portHost) && e.RemoteIP.Equal(net.ParseIP(host)) {
+				if e.Type == EventTypeConnFailed && e.RemotePort == uint16(portHost) && e.RemoteIP.Equal(net.ParseIP(host)) {
 					gotHost = true
 				}
 			case <-time.After(300 * time.Millisecond):
