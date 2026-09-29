@@ -30,55 +30,17 @@ type EventType uint16
 
 const (
 	EventTypeConnectFailed EventType = iota + 1
-	EventTypeRetransmit
-	EventTypeRetransmitSynack
-	EventTypeSendReset
-	EventTypeReceiveReset
+	EventTypeConnClosed
 )
 
 func (t EventType) String() string {
 	switch t {
 	case EventTypeConnectFailed:
 		return "connect_failed"
-	case EventTypeRetransmit:
-		return "retransmit"
-	case EventTypeRetransmitSynack:
-		return "retransmit_synack"
-	case EventTypeSendReset:
-		return "send_reset"
-	case EventTypeReceiveReset:
-		return "receive_reset"
+	case EventTypeConnClosed:
+		return "conn_closed"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint16(t))
-	}
-}
-
-// CaState is the socket's congestion control state at retransmit time:
-// the discriminator between RTO and fast retransmits.
-type CaState uint8
-
-const (
-	CaOpen CaState = iota
-	CaDisorder
-	CaCWR
-	CaRecovery // fast retransmit (ordinary loss)
-	CaLoss     // RTO fired (stall/blackhole)
-)
-
-func (c CaState) String() string {
-	switch c {
-	case CaOpen:
-		return "open"
-	case CaDisorder:
-		return "disorder"
-	case CaCWR:
-		return "cwr"
-	case CaRecovery:
-		return "fast_retransmit"
-	case CaLoss:
-		return "rto"
-	default:
-		return fmt.Sprintf("ca(%d)", uint8(c))
 	}
 }
 
@@ -132,7 +94,8 @@ func (t *Tracer) EventsReady() <-chan struct{} {
 	return t.eventsReady
 }
 
-// ConnEvent is a TCP connection problem observed on the node.
+// ConnEvent is a TCP connection lifecycle event observed on the node,
+// carrying the connection's final stats.
 type ConnEvent struct {
 	Type        EventType
 	TimestampNS uint64
@@ -144,50 +107,30 @@ type ConnEvent struct {
 	RemotePort  uint16
 	Family      uint16
 	CgroupID    uint64
-	// Aggregates for this event's stats key
-	// (cgroup+pid+src_ip+dst_ip+dst_port), giving single events their
-	// baseline: ConnRate is connect attempts per second in the current
-	// or the last completed 1s window (whichever shows the higher rate),
-	// ConnCount the total; RTTAvgUS, LifeAvgUS and RetransRatioPM are
-	// aggregates across previously established connections of the same
-	// key.
-	ConnCount uint64
-	ConnRate  uint32
-	RTTAvgUS  uint32
-	LifeAvgUS uint64
-	// Errno is the kernel error the connection failed with
-	// (e.g. ECONNREFUSED, ETIMEDOUT). Zero means the socket was
-	// aborted locally before the handshake resolved. Only set for
-	// EventTypeConnectFailed.
+	// LifeUS is the duration from the connect attempt to the event.
+	LifeUS uint64
+	// RTTUS is the kernel's smoothed RTT at the end of the connection;
+	// zero on failed attempts (no sample was ever taken).
+	RTTUS uint32
+	// Retransmits is the connection's retransmit count: handshake SYN
+	// retries plus data retransmits on conn_closed events, just the SYN
+	// retries on connect_failed ones. SegsOut is the total segments sent
+	// over the same period, giving the count its denominator.
+	Retransmits uint32
+	SegsOut     uint32
+	// Errno is the socket error at event time: the failure reason on
+	// connect_failed (e.g. ECONNREFUSED, ETIMEDOUT), the reset or abort
+	// cause on conn_closed, zero on clean closes.
 	Errno uint32
-	// Retransmit payload, only set for EventTypeRetransmit.
-	CaState    CaState // Loss (rto) vs Recovery (fast_retransmit)
-	SegLen     uint32  // retransmitted segment size in bytes
-	SndWnd     uint32  // peer's advertised window: zero means a stuck receiver
-	PacketsOut uint32
-	// RetransmitCount is the retransmits the connection (or, for
-	// EventTypeRetransmitSynack, the handshake) already had before this
-	// event. Only retransmits that look like incidents are emitted at all:
-	// RTO-driven, zero-window or repeated ones, and the second SYN-ACK retry.
-	RetransmitCount uint8
-	// RetransRatioPM is retransmitted/sent segments in per-mille over
-	// the same stats key as the averages above.
-	RetransRatioPM uint32
 }
 
-// StatsSummary renders the aggregate context carried on the event.
+// StatsSummary renders the per-connection stats carried on the event.
 func (e ConnEvent) StatsSummary() string {
-	s := fmt.Sprintf("rate=%d/s total=%d", e.ConnRate, e.ConnCount)
-	if e.RTTAvgUS > 0 {
-		s += fmt.Sprintf(" rtt_avg=%s", formatMicros(float64(e.RTTAvgUS)))
+	s := fmt.Sprintf("life=%s", formatMicros(float64(e.LifeUS)))
+	if e.RTTUS > 0 {
+		s += fmt.Sprintf(" rtt=%s", formatMicros(float64(e.RTTUS)))
 	}
-	if e.LifeAvgUS > 0 {
-		s += fmt.Sprintf(" life_avg=%s", formatMicros(float64(e.LifeAvgUS)))
-	}
-	if e.RetransRatioPM > 0 {
-		s += fmt.Sprintf(" retrans=%.1f%%", float64(e.RetransRatioPM)/10)
-	}
-	return s
+	return s + fmt.Sprintf(" retrans=%d/%d", e.Retransmits, e.SegsOut)
 }
 
 func formatMicros(us float64) string {
@@ -235,10 +178,6 @@ func (t *Tracer) Run(ctx context.Context) error {
 	}{
 		{"inet_sock_set_state", objs.KoSockState},
 		{"tcp_destroy_sock", objs.KoDestroySock},
-		{"tcp_retransmit_skb", objs.KoRtxSkb},
-		{"tcp_retransmit_synack", objs.KoRtxSynack},
-		{"tcp_send_reset", objs.KoSendReset},
-		{"tcp_receive_reset", objs.KoRecvReset},
 	}
 	for _, rtp := range rtps {
 		l, err := link.AttachRawTracepoint(link.RawTracepointOptions{Name: rtp.name, Program: rtp.prog})
@@ -259,7 +198,7 @@ func (t *Tracer) Run(ctx context.Context) error {
 		rd.Close()
 	}()
 
-	t.log.Info("listening for tcp connection failures")
+	t.log.Info("listening for tcp connection events")
 	for {
 		record, err := rd.Read()
 		if err != nil {
@@ -296,39 +235,27 @@ func (t *Tracer) logEvent(event ConnEvent) {
 		event.Type, event.Comm, event.Pid,
 		net.JoinHostPort(event.LocalIP.String(), fmt.Sprint(event.LocalPort)),
 		net.JoinHostPort(event.RemoteIP.String(), fmt.Sprint(event.RemotePort)))
-	if event.Type == EventTypeConnectFailed {
+	if event.Errno != 0 {
 		msg += " error=" + ErrnoString(event.Errno)
-	}
-	if event.Type == EventTypeRetransmit {
-		msg += fmt.Sprintf(" cause=%s seg=%d inflight=%d retransmits=%d", event.CaState, event.SegLen, event.PacketsOut, event.RetransmitCount)
-		if event.SndWnd == 0 {
-			msg += " snd_wnd=0"
-		}
 	}
 	t.log.Info(msg + " " + event.StatsSummary())
 }
 
 func decodeConnEvent(raw tracerConnEventT) ConnEvent {
 	event := ConnEvent{
-		Type:            EventType(raw.Type),
-		TimestampNS:     raw.Ts,
-		Pid:             raw.Pid,
-		Comm:            cString(raw.Comm[:]),
-		LocalPort:       raw.LocalPort,
-		RemotePort:      raw.RemotePort,
-		Family:          raw.Family,
-		CgroupID:        raw.CgroupId,
-		ConnCount:       raw.ConnCount,
-		ConnRate:        raw.ConnRate,
-		RTTAvgUS:        raw.RttAvgUs,
-		LifeAvgUS:       raw.LifeAvgUs,
-		Errno:           raw.Error,
-		CaState:         CaState(raw.CaState),
-		SegLen:          raw.SegLen,
-		SndWnd:          raw.SndWnd,
-		PacketsOut:      raw.PacketsOut,
-		RetransRatioPM:  raw.RtxRatioPm,
-		RetransmitCount: raw.RtxCount,
+		Type:        EventType(raw.Type),
+		TimestampNS: raw.Ts,
+		Pid:         raw.Pid,
+		Comm:        cString(raw.Comm[:]),
+		LocalPort:   raw.LocalPort,
+		RemotePort:  raw.RemotePort,
+		Family:      raw.Family,
+		CgroupID:    raw.CgroupId,
+		LifeUS:      raw.LifeUs,
+		RTTUS:       raw.RttUs,
+		Retransmits: raw.Retransmits,
+		SegsOut:     raw.SegsOut,
+		Errno:       raw.Error,
 	}
 	switch raw.Family {
 	case afInet:

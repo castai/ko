@@ -23,54 +23,23 @@ type tracerConnCtxT struct {
 }
 
 type tracerConnEventT struct {
-	_          structs.HostLayout
-	Ts         uint64
-	Pid        uint32
-	Error      uint32
-	Comm       [16]int8
-	Family     uint16
-	LocalPort  uint16
-	RemotePort uint16
-	Type       uint16
-	LocalIp    [16]uint8
-	RemoteIp   [16]uint8
-	CgroupId   uint64
-	ConnCount  uint64
-	ConnRate   uint32
-	RttAvgUs   uint32
-	LifeAvgUs  uint64
-	SegLen     uint32
-	SndWnd     uint32
-	PacketsOut uint32
-	RtxRatioPm uint32
-	CaState    uint8
-	RtxCount   uint8
-	Pad        [2]uint8
-	_          [4]byte
-}
-
-type tracerStatsKeyT struct {
-	_        structs.HostLayout
-	CgroupId uint64
-	Pid      uint32
-	Family   uint16
-	DstPort  uint16
-	SrcIp    [16]uint8
-	DstIp    [16]uint8
-}
-
-type tracerStatsT struct {
-	_            structs.HostLayout
-	ConnCount    uint64
-	WindowStart  uint64
-	ConnRate     uint32
-	ConnRatePrev uint32
-	RttSumUs     uint64
-	RttCount     uint64
-	LifeSumNs    uint64
-	LifeCount    uint64
-	RtxSum       uint64
-	SegsSum      uint64
+	_           structs.HostLayout
+	Ts          uint64
+	Pid         uint32
+	Error       uint32
+	Comm        [16]int8
+	Family      uint16
+	LocalPort   uint16
+	RemotePort  uint16
+	Type        uint16
+	LocalIp     [16]uint8
+	RemoteIp    [16]uint8
+	CgroupId    uint64
+	LifeUs      uint64
+	RttUs       uint32
+	Retransmits uint32
+	SegsOut     uint32
+	_           [4]byte
 }
 
 // Names of all BPF objects in the ELF.
@@ -79,12 +48,7 @@ type tracerStatsT struct {
 const (
 	tracerMapKoEvents               = "ko_events"
 	tracerMapKoSockCtx              = "ko_sock_ctx"
-	tracerMapKoSockStats            = "ko_sock_stats"
 	tracerProgKoDestroySock         = "ko_destroy_sock"
-	tracerProgKoRecvReset           = "ko_recv_reset"
-	tracerProgKoRtxSkb              = "ko_rtx_skb"
-	tracerProgKoRtxSynack           = "ko_rtx_synack"
-	tracerProgKoSendReset           = "ko_send_reset"
 	tracerProgKoSockState           = "ko_sock_state"
 	tracerVarKoFilterIgnoreLoopback = "ko_filter_ignore_loopback"
 )
@@ -132,10 +96,6 @@ type tracerSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerProgramSpecs struct {
 	KoDestroySock *ebpf.ProgramSpec `ebpf:"ko_destroy_sock"`
-	KoRecvReset   *ebpf.ProgramSpec `ebpf:"ko_recv_reset"`
-	KoRtxSkb      *ebpf.ProgramSpec `ebpf:"ko_rtx_skb"`
-	KoRtxSynack   *ebpf.ProgramSpec `ebpf:"ko_rtx_synack"`
-	KoSendReset   *ebpf.ProgramSpec `ebpf:"ko_send_reset"`
 	KoSockState   *ebpf.ProgramSpec `ebpf:"ko_sock_state"`
 }
 
@@ -143,9 +103,8 @@ type tracerProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerMapSpecs struct {
-	KoEvents    *ebpf.MapSpec `ebpf:"ko_events"`
-	KoSockCtx   *ebpf.MapSpec `ebpf:"ko_sock_ctx"`
-	KoSockStats *ebpf.MapSpec `ebpf:"ko_sock_stats"`
+	KoEvents  *ebpf.MapSpec `ebpf:"ko_events"`
+	KoSockCtx *ebpf.MapSpec `ebpf:"ko_sock_ctx"`
 }
 
 // tracerVariableSpecs contains global variables before they are loaded into the kernel.
@@ -175,16 +134,14 @@ func (o *tracerObjects) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerMaps struct {
-	KoEvents    *ebpf.Map `ebpf:"ko_events"`
-	KoSockCtx   *ebpf.Map `ebpf:"ko_sock_ctx"`
-	KoSockStats *ebpf.Map `ebpf:"ko_sock_stats"`
+	KoEvents  *ebpf.Map `ebpf:"ko_events"`
+	KoSockCtx *ebpf.Map `ebpf:"ko_sock_ctx"`
 }
 
 func (m *tracerMaps) Close() error {
 	return _TracerClose(
 		m.KoEvents,
 		m.KoSockCtx,
-		m.KoSockStats,
 	)
 }
 
@@ -200,20 +157,12 @@ type tracerVariables struct {
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerPrograms struct {
 	KoDestroySock *ebpf.Program `ebpf:"ko_destroy_sock"`
-	KoRecvReset   *ebpf.Program `ebpf:"ko_recv_reset"`
-	KoRtxSkb      *ebpf.Program `ebpf:"ko_rtx_skb"`
-	KoRtxSynack   *ebpf.Program `ebpf:"ko_rtx_synack"`
-	KoSendReset   *ebpf.Program `ebpf:"ko_send_reset"`
 	KoSockState   *ebpf.Program `ebpf:"ko_sock_state"`
 }
 
 func (p *tracerPrograms) Close() error {
 	return _TracerClose(
 		p.KoDestroySock,
-		p.KoRecvReset,
-		p.KoRtxSkb,
-		p.KoRtxSynack,
-		p.KoSendReset,
 		p.KoSockState,
 	)
 }

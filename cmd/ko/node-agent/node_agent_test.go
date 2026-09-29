@@ -92,7 +92,9 @@ func TestApp(t *testing.T) {
 		"type=connect_failed",
 		"remote_addr=127.0.0.1:" + strconv.Itoa(port),
 		"pid=" + strconv.Itoa(os.Getpid()),
-		"conn_total=",
+		"life_us=",
+		"retransmits=",
+		"segs_out=",
 	}
 
 	deadline := time.Now().Add(15 * time.Second)

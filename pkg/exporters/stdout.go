@@ -71,27 +71,15 @@ func (e *StdoutExporter) logEvent(ev Event) {
 		"ko_cgroup_id", ev.CgroupID,
 		"ko_local_addr", addr(ev.LocalIP, ev.LocalPort),
 		"ko_remote_addr", addr(ev.RemoteIP, ev.RemotePort),
-		"ko_conn_rate", ev.ConnRate,
-		"ko_conn_total", ev.ConnCount,
-		"ko_rtt_avg_us", ev.RTTAvgUS,
-		"ko_life_avg_us", ev.LifeAvgUS,
-		"ko_retrans_ratio_pm", ev.RetransRatioPM,
+		"ko_life_us", ev.LifeUS,
+		"ko_rtt_us", ev.RTTUS,
+		"ko_retransmits", ev.Retransmits,
+		"ko_segs_out", ev.SegsOut,
 	)
-	// Only connect failures carry an errno: retransmit and reset events
-	// leave it zero, so the field is omitted for them.
-	if ev.Type == tracer.EventTypeConnectFailed {
+	// Failed connections always carry an errno; closed ones only when
+	// the close was not clean (reset, abort, timeout).
+	if ev.Errno != 0 {
 		log = log.WithField("ko_error", tracer.ErrnoString(ev.Errno))
-	}
-	if ev.Type == tracer.EventTypeRetransmit {
-		log = log.With(
-			"ko_ca_state", ev.CaState.String(),
-			"ko_seg_len", ev.SegLen,
-			"ko_snd_wnd", ev.SndWnd,
-			"ko_packets_out", ev.PacketsOut,
-		)
-	}
-	if ev.Type == tracer.EventTypeRetransmit || ev.Type == tracer.EventTypeRetransmitSynack {
-		log = log.With("ko_retrans_count", ev.RetransmitCount)
 	}
 	if c := ev.Container; c != nil {
 		log = log.With(
