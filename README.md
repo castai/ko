@@ -5,9 +5,9 @@ Ko is Kubernetes eBPF based issues detection and root cause tool. Currently, it 
 ## Install
 
 ```sh
- helm upgrade ko --install -n ko \
+  helm upgrade ko --install -n ko \
     oci://ghcr.io/castai/ko-chart/ko \
-    --version="0.0.0-dev.anjmao.d906441.1790232416" \
+    --version="0.0.0-dev.anjmao.1790673590.b2a183f" \
     --create-namespace
 ```
 

@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/charts/ko"
 
-TAG="${KO_TAG:-dev-$(whoami)-$(git rev-parse --short HEAD)-$(date +%s)}"
+TAG="${KO_TAG:-dev-$(whoami)-$(date +%s)}-$(git rev-parse --short HEAD)"
 ARCHS="${KO_ARCHS:-amd64,arm64}"
 PUSH_CHART="${KO_PUSH_CHART:-true}"
 GITHUB_USER="${GITHUB_USER:-anjmao}"
@@ -150,10 +150,10 @@ print_summary() {
   echo "  Helm upgrade command:" >&2
   echo "" >&2
   if [ "${PUSH_CHART}" = "true" ]; then
-    printf '  helm upgrade ko -n ko \\\n    oci://%s/ko \\\n    --version="%s" \\\n    --create-namespace\n' \
+    printf '  helm upgrade ko --install -n ko \\\n    oci://%s/ko \\\n    --version="%s" \\\n    --create-namespace\n' \
       "${CHART_REPOSITORY}" "${chart_version}" >&2
   else
-    printf '  helm upgrade ko -n ko \\\n    %s/charts/ko \\\n    --create-namespace \\\n    --set image.tag=%s\n' \
+    printf '  helm upgrade ko --install -n ko \\\n    %s/charts/ko \\\n    --create-namespace \\\n    --set image.tag=%s\n' \
       "${ROOT_DIR}" "${TAG}" >&2
   fi
 }
