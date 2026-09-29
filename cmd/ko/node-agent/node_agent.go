@@ -16,7 +16,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/castai/ko/pkg/config"
-	"github.com/castai/ko/pkg/conntest"
 	"github.com/castai/ko/pkg/exporters"
 	"github.com/castai/ko/pkg/kontext"
 	"github.com/castai/ko/pkg/tracer"
@@ -57,22 +56,16 @@ func run(ctx context.Context, log *logging.Logger, cfg config.Config) error {
 	events := make(chan tracer.ConnEvent, 256)
 	tr := tracer.New(log, tracer.WithEvents(events), tracer.WithFilter(cfg.Tracer.Filters))
 
-	var mesh *conntest.Mesh
-	if cfg.ConnTest.Enabled {
-		mesh = conntest.New(log, cfg.ConnTest)
-	}
-
-	instance := New(log, tr, kctx, events, mesh, cfg.Metrics.Addr, exps...)
+	instance := New(log, tr, kctx, events, cfg.Metrics.Addr, exps...)
 	return instance.Run(ctx)
 }
 
-func New(log *logging.Logger, tr *tracer.Tracer, kctx *kontext.Client, events <-chan tracer.ConnEvent, mesh *conntest.Mesh, metricsAddr string, exps ...exporters.Exporter) *App {
+func New(log *logging.Logger, tr *tracer.Tracer, kctx *kontext.Client, events <-chan tracer.ConnEvent, metricsAddr string, exps ...exporters.Exporter) *App {
 	return &App{
 		log:         log,
 		tracer:      tr,
 		kontext:     kctx,
 		events:      events,
-		mesh:        mesh,
 		metricsAddr: metricsAddr,
 		exporters:   exps,
 	}
@@ -83,7 +76,6 @@ type App struct {
 	tracer      *tracer.Tracer
 	kontext     *kontext.Client
 	events      <-chan tracer.ConnEvent
-	mesh        *conntest.Mesh
 	metricsAddr string
 	exporters   []exporters.Exporter
 
@@ -102,21 +94,6 @@ func (a *App) Run(ctx context.Context) error {
 	errg.Go(func() error {
 		return a.tracer.Run(ctx)
 	})
-
-	if a.mesh != nil {
-		// The tracer only reports sockets it saw connecting: start the
-		// mesh after the tracer's first event read so its connections are
-		// tracked too.
-		ready := a.tracer.EventsReady()
-		errg.Go(func() error {
-			select {
-			case <-ready:
-			case <-ctx.Done():
-				return nil
-			}
-			return a.mesh.Run(ctx)
-		})
-	}
 
 	if a.metricsAddr != "" {
 		errg.Go(func() error {

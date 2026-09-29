@@ -86,10 +86,6 @@ type Tracer struct {
 	readyOnce   sync.Once
 }
 
-// EventsReady is closed once the tracer has read its first event from
-// the ring buffer. Connections established before that moment are not
-// tracked: components whose own connections must be observed (the
-// conntest mesh) wait for it before connecting.
 func (t *Tracer) EventsReady() <-chan struct{} {
 	return t.eventsReady
 }

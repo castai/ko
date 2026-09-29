@@ -1,6 +1,3 @@
-conntest:
-  enabled: true
-
 config: |
   exporters:
     - name: stdout
@@ -9,8 +6,4 @@ config: |
       ignoreLoopback: false
   metrics:
     addr: ":9081"
-  conntest:
-    enabled: true
-    listenPort: 9080
-    interval: 1s
-    timeout: 2s
+

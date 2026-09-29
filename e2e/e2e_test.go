@@ -52,59 +52,6 @@ func TestKo(t *testing.T) {
 
 		t.Fatalf("no exported event found in ko logs:\n%s", koLogs(t))
 	})
-
-	t.Run("conntest mesh connected", func(t *testing.T) {
-		pods := koPodList(t)
-		if len(pods) != 2 {
-			t.Fatalf("expected 2 ko pods on 2 nodes, got %d: %+v", len(pods), pods)
-		}
-		if pods[0].Node == pods[1].Node {
-			t.Fatalf("ko pods must run on different nodes: %+v", pods)
-		}
-
-		runHelperPod(t)
-		defer kubectl(t, "delete", "pod", "--ignore-not-found", "metrics-helper")
-
-		deadline := time.Now().Add(3 * time.Minute)
-		for time.Now().Before(deadline) {
-			if conntestMeshHealthy(t, pods) {
-				t.Logf("conntest mesh connected between %s and %s", pods[0].Node, pods[1].Node)
-				return
-			}
-			time.Sleep(5 * time.Second)
-		}
-
-		for _, p := range pods {
-			t.Logf("metrics of %s:\n%s", p.Name, fetchMetrics(p.IP))
-		}
-		t.Fatal("conntest metrics not populated on all pods")
-	})
-}
-
-func conntestMeshHealthy(t *testing.T, pods []koPod) bool {
-	t.Helper()
-
-	for _, src := range pods {
-		body := fetchMetrics(src.IP)
-		if body == "" {
-			return false
-		}
-		for _, dst := range pods {
-			if dst.Name == src.Name {
-				continue
-			}
-			if v, ok := metricValue(body, "ko_conntest_state", map[string]string{"state": "connected", "target_pod": dst.Name}); !ok || v != 1 {
-				return false
-			}
-			if p, ok := metricValue(body, "ko_conntest_pings_total", map[string]string{"target_pod": dst.Name}); !ok || p < 1 {
-				return false
-			}
-			if _, ok := metricValue(body, "ko_conntest_rtt_seconds", map[string]string{"target_pod": dst.Name}); !ok {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 type koPod struct {

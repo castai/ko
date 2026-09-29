@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/castai/ko/pkg/conntest"
 	"github.com/castai/ko/pkg/tracer"
 	"gopkg.in/yaml.v3"
 )
@@ -13,10 +12,9 @@ import (
 // Config is the shared agent configuration. Both the node agent and the
 // cluster agent read the same file format.
 type Config struct {
-	Exporters []Exporter      `yaml:"exporters"`
-	Tracer    TracerConfig    `yaml:"tracer"`
-	Metrics   MetricsConfig   `yaml:"metrics"`
-	ConnTest  conntest.Config `yaml:"conntest"`
+	Exporters []Exporter    `yaml:"exporters"`
+	Tracer    TracerConfig  `yaml:"tracer"`
+	Metrics   MetricsConfig `yaml:"metrics"`
 }
 
 // MetricsConfig configures the agent's Prometheus /metrics endpoint.
