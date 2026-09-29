@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/charts/ko"
 
-TAG="${KO_TAG:-dev-$(whoami)-$(date +%s)}-$(git rev-parse --short HEAD)"
+TAG="${KO_TAG:-dev-$(date +%s)}-$(whoami)-$(git rev-parse --short HEAD)"
 ARCHS="${KO_ARCHS:-amd64,arm64}"
 PUSH_CHART="${KO_PUSH_CHART:-true}"
 GITHUB_USER="${GITHUB_USER:-anjmao}"
