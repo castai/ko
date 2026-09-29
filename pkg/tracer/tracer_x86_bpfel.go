@@ -47,6 +47,7 @@ type tracerConnEventT struct {
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
 	tracerMapKoEvents               = "ko_events"
+	tracerMapKoRingbufDrops         = "ko_ringbuf_drops"
 	tracerMapKoSockCtx              = "ko_sock_ctx"
 	tracerProgKoDestroySock         = "ko_destroy_sock"
 	tracerProgKoSockState           = "ko_sock_state"
@@ -103,8 +104,9 @@ type tracerProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerMapSpecs struct {
-	KoEvents  *ebpf.MapSpec `ebpf:"ko_events"`
-	KoSockCtx *ebpf.MapSpec `ebpf:"ko_sock_ctx"`
+	KoEvents       *ebpf.MapSpec `ebpf:"ko_events"`
+	KoRingbufDrops *ebpf.MapSpec `ebpf:"ko_ringbuf_drops"`
+	KoSockCtx      *ebpf.MapSpec `ebpf:"ko_sock_ctx"`
 }
 
 // tracerVariableSpecs contains global variables before they are loaded into the kernel.
@@ -134,13 +136,15 @@ func (o *tracerObjects) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerMaps struct {
-	KoEvents  *ebpf.Map `ebpf:"ko_events"`
-	KoSockCtx *ebpf.Map `ebpf:"ko_sock_ctx"`
+	KoEvents       *ebpf.Map `ebpf:"ko_events"`
+	KoRingbufDrops *ebpf.Map `ebpf:"ko_ringbuf_drops"`
+	KoSockCtx      *ebpf.Map `ebpf:"ko_sock_ctx"`
 }
 
 func (m *tracerMaps) Close() error {
 	return _TracerClose(
 		m.KoEvents,
+		m.KoRingbufDrops,
 		m.KoSockCtx,
 	)
 }

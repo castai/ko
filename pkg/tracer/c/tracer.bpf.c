@@ -97,6 +97,13 @@ struct {
     __type(value, struct conn_event_t);
 } ko_events SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u64);
+} ko_ringbuf_drops SEC(".maps");
+
 static __always_inline void fill_addrs(struct conn_event_t *e, u16 family, struct sock_addrs *a)
 {
     if (family == AF_INET) {
@@ -206,8 +213,13 @@ static __always_inline bool sock_filtered(u16 family, struct sock_addrs *a)
 static __always_inline void submit_conn_evt(u64 skaddr, conn_ctx_t *cctx, u16 type, u16 family, u16 sport, u16 dport, struct sock_addrs *a)
 {
     struct conn_event_t *e = bpf_ringbuf_reserve(&ko_events, sizeof(*e), 0);
-    if (!e)
+    if (!e) {
+        u32 zero = 0;
+        u64 *drops = bpf_map_lookup_elem(&ko_ringbuf_drops, &zero);
+        if (drops)
+            *drops += 1;
         return;
+    }
     __builtin_memset(e, 0, sizeof(*e));
 
     attr_t at = {};

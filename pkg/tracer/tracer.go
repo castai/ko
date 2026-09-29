@@ -198,6 +198,12 @@ func (t *Tracer) Run(ctx context.Context) error {
 		rd.Close()
 	}()
 
+	stopDrops := make(chan struct{})
+	defer close(stopDrops)
+	if m := objs.KoRingbufDrops; m != nil {
+		go trackRingbufDrops(m, stopDrops)
+	}
+
 	t.log.Info("listening for tcp connection events")
 	for {
 		record, err := rd.Read()
@@ -208,9 +214,11 @@ func (t *Tracer) Run(ctx context.Context) error {
 			return fmt.Errorf("read ringbuf: %w", err)
 		}
 		t.readyOnce.Do(func() { close(t.eventsReady) })
+		eventsTotal.Inc()
 
 		var raw tracerConnEventT
 		if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &raw); err != nil {
+			decodeErrorsTotal.Inc()
 			t.log.Errorf("decode conn event: %v", err)
 			continue
 		}
