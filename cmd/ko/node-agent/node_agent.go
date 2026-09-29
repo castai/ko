@@ -47,7 +47,7 @@ func run(ctx context.Context, log *logging.Logger, cfg config.Config) error {
 		return err
 	}
 
-	kctx, err := kontext.New(log, kontext.DefaultSocket)
+	kctx, err := kontext.New(log, cfg.Kontext.SocketPaths...)
 	if err != nil {
 		log.Warnf("k8s context disabled: %v", err)
 		kctx = nil

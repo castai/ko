@@ -58,8 +58,16 @@ spec:
           securityContext:
             privileged: true
           volumeMounts:
-            - name: containerd-sock
-              mountPath: {{ .Values.containerd.socketPath }}
+            {{- $sockDirs := dict }}
+            {{- range .Values.containerd.socketPaths }}
+            {{- $_ := set $sockDirs (dir .) true }}
+            {{- end }}
+            {{- $i := 0 }}
+            {{- range $dir, $_ := $sockDirs }}
+            - name: containerd-sock-{{ $i }}
+              mountPath: {{ $dir }}
+              {{- $i = add $i 1 }}
+            {{- end }}
             - name: sysfs-cgroup
               mountPath: /sys/fs/cgroup
               readOnly: true
@@ -72,10 +80,18 @@ spec:
               readOnly: true
           resources: {{- toYaml .Values.resources | nindent 12 }}
       volumes:
-        - name: containerd-sock
+        {{- $sockDirs := dict }}
+        {{- range .Values.containerd.socketPaths }}
+        {{- $_ := set $sockDirs (dir .) true }}
+        {{- end }}
+        {{- $i := 0 }}
+        {{- range $dir, $_ := $sockDirs }}
+        - name: containerd-sock-{{ $i }}
           hostPath:
-            path: {{ .Values.containerd.socketPath }}
-            type: Socket
+            path: {{ $dir }}
+            type: DirectoryOrCreate
+          {{- $i = add $i 1 }}
+        {{- end }}
         - name: sysfs-cgroup
           hostPath:
             path: /sys/fs/cgroup

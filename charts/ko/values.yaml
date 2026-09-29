@@ -4,10 +4,10 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
-# Host path of the containerd socket serving the CRI API. Mounted at the
-# same path into the container.
 containerd:
-  socketPath: /run/containerd/containerd.sock
+  socketPaths:
+    - /run/containerd/containerd.sock
+    - /run/k0s/containerd.sock
 
 # Host path of the tracefs mount. Resolving tracepoint IDs requires
 # tracefs inside the container; it is always mounted at /sys/kernel/tracing.
@@ -25,6 +25,9 @@ config: |
       ignoreLoopback: true
   metrics:
     addr: ":{{ .Values.metricsPort }}"
+  kontext:
+    socketPaths:{{ range .Values.containerd.socketPaths }}
+      - {{ . }}{{ end }}
 
 # Prometheus /metrics endpoint served by the agent.
 metricsPort: 9081

@@ -21,15 +21,18 @@ import (
 )
 
 const (
-	// DefaultSocket is the containerd socket which also serves the CRI API.
-	DefaultSocket = "unix:///run/containerd/containerd.sock"
-	cgroupRoot    = "/sys/fs/cgroup"
+	cgroupRoot = "/sys/fs/cgroup"
 
 	podNamespaceLabel  = "io.kubernetes.pod.namespace"
 	podNameLabel       = "io.kubernetes.pod.name"
 	podUIDLabel        = "io.kubernetes.pod.uid"
 	containerNameLabel = "io.kubernetes.container.name"
 )
+
+var DefaultSockets = []string{
+	"/run/containerd/containerd.sock",
+	"/run/k0s/containerd.sock",
+}
 
 var ErrContainerNotFound = errors.New("container not found")
 
@@ -61,37 +64,47 @@ type Client struct {
 	minSyncInterval time.Duration
 }
 
-func New(log *logging.Logger, socket string) (*Client, error) {
+func New(log *logging.Logger, socketPaths ...string) (*Client, error) {
 	if err := requireCgroupV2(); err != nil {
 		return nil, err
 	}
-
-	conn, err := grpc.NewClient(socket,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		// Disable HTTPS_PROXY for unix socket connections.
-		grpc.WithNoProxy(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to %s: %w", socket, err)
+	if len(socketPaths) == 0 {
+		socketPaths = DefaultSockets
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cri := criapi.NewRuntimeServiceClient(conn)
-	if _, err := cri.Version(ctx, &criapi.VersionRequest{}); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("CRI version check via %s: %w", socket, err)
-	}
+	var lastErr error
+	for _, path := range socketPaths {
+		conn, err := grpc.NewClient("unix://"+path,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			// Disable HTTPS_PROXY for unix socket connections.
+			grpc.WithNoProxy(),
+		)
+		if err != nil {
+			lastErr = fmt.Errorf("connecting to %s: %w", path, err)
+			continue
+		}
 
-	return &Client{
-		log:             log.WithField("component", "kontext"),
-		cri:             cri,
-		conn:            conn.Close,
-		root:            cgroupRoot,
-		byCgroup:        map[uint64]*ContainerInfo{},
-		resyncInterval:  30 * time.Second,
-		minSyncInterval: 2 * time.Second,
-	}, nil
+		cri := criapi.NewRuntimeServiceClient(conn)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = cri.Version(ctx, &criapi.VersionRequest{})
+		cancel()
+		if err != nil {
+			conn.Close()
+			lastErr = fmt.Errorf("CRI version check via %s: %w", path, err)
+			continue
+		}
+
+		return &Client{
+			log:             log.WithField("component", "kontext"),
+			cri:             cri,
+			conn:            conn.Close,
+			root:            cgroupRoot,
+			byCgroup:        map[uint64]*ContainerInfo{},
+			resyncInterval:  30 * time.Second,
+			minSyncInterval: 2 * time.Second,
+		}, nil
+	}
+	return nil, fmt.Errorf("CRI connect: none of %s answered: %w", strings.Join(socketPaths, ", "), lastErr)
 }
 
 func (c *Client) Close() error {

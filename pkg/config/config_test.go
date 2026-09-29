@@ -34,6 +34,28 @@ tracer:
 	}
 }
 
+func TestParseKontextSocketPaths(t *testing.T) {
+	cfg, err := Parse([]byte(`
+exporters: []
+kontext:
+  socketPaths:
+    - /run/containerd/containerd.sock
+    - /run/k0s/containerd.sock
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/run/containerd/containerd.sock", "/run/k0s/containerd.sock"}
+	if len(cfg.Kontext.SocketPaths) != 2 {
+		t.Fatalf("expected 2 socket paths, got %+v", cfg.Kontext)
+	}
+	for i, path := range want {
+		if cfg.Kontext.SocketPaths[i] != path {
+			t.Fatalf("expected socket path %s, got %+v", path, cfg.Kontext)
+		}
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	cfg, err := Parse([]byte(`exporters: []`))
 	if err != nil {

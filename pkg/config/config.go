@@ -13,8 +13,13 @@ import (
 // cluster agent read the same file format.
 type Config struct {
 	Exporters []Exporter    `yaml:"exporters"`
+	Kontext   KontextConfig `yaml:"kontext"`
 	Tracer    TracerConfig  `yaml:"tracer"`
 	Metrics   MetricsConfig `yaml:"metrics"`
+}
+
+type KontextConfig struct {
+	SocketPaths []string `yaml:"socketPaths"`
 }
 
 // MetricsConfig configures the agent's Prometheus /metrics endpoint.
