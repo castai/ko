@@ -103,7 +103,7 @@ struct {
     __type(value, struct conn_event_t);
 } ko_events SEC(".maps");
 
-#define KO_MAX_PREDS 64
+#define KO_MAX_PREDS 32
 #define KO_MAX_IPSET 4
 
 #define KO_TRI_FALSE 0

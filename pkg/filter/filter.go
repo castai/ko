@@ -71,7 +71,7 @@ const (
 
 	MaxIPSet   = 4
 	MaxFilters = 32
-	MaxPreds   = 64
+	MaxPreds   = 32
 )
 
 type Pred struct {

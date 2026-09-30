@@ -52,7 +52,7 @@ type tracerKoProg struct {
 	_        structs.HostLayout
 	Nfilters uint32
 	Npreds   uint32
-	Preds    [64]struct {
+	Preds    [32]struct {
 		_    structs.HostLayout
 		Val  uint64
 		Kind uint8
