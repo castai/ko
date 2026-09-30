@@ -17,7 +17,7 @@ Ko reports TCP connection lifecycle events as structured `tcp_event` log lines (
 
 ### Filters
 
-Optional named CEL expressions select which events are reported. Filters are an ordered list; an event carries the first matching filter as `ko_filter`, and events matching no filter are dropped. Expressions decide in the eBPF program whenever possible: kernel-side facts (stats, CIDR matches) and per-cgroup verdicts for namespace/container/pod predicates are evaluated before the event is produced.
+Named CEL expressions select which events are reported. Filters are an ordered allowlist: an event carries the first matching filter as `ko_filter`, and events matching no filter are dropped — **without any filters configured, no events are reported at all**. Expressions decide in the eBPF program whenever possible: kernel-side facts (stats, CIDR matches, event type) and per-cgroup verdicts for namespace/container/pod predicates are evaluated before the event is produced.
 
 Supported fields: `ko_namespace`, `ko_container`, `ko_pod`, `ko_rtt_us`, `ko_life_us`, `ko_retransmits`, `ko_segs_out`, `ip_in(ko_local_addr, cidrs)`, `ip_in(ko_remote_addr, cidrs)`, and `ko_type` with the constants `ko_type_conn_failed`, `ko_type_conn_closed`, `ko_type_retransmit`, with the built-in CIDR lists `ko_loopback_cidrs` and `ko_private_cidrs`. Anything else fails validation at startup.
 

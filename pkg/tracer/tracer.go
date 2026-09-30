@@ -203,7 +203,7 @@ func (t *Tracer) Run(ctx context.Context) error {
 	if m := objs.KoRingbufDrops; m != nil {
 		go trackRingbufDrops(m, stopDrops)
 	}
-	if m := objs.KoFilterDrops; m != nil && t.filterSet != nil {
+	if m := objs.KoFilterDrops; m != nil {
 		go trackFilterDrops(m, stopDrops)
 	}
 	// Kernel-side program runtime accounting is opt-in because it adds a
@@ -240,26 +240,28 @@ func (t *Tracer) Run(ctx context.Context) error {
 		}
 
 		event := decodeConnEvent(raw)
-		if t.filterSet != nil {
-			names := t.filterSet.Names()
-			if event.FilterIdx < uint16(len(names)) {
-				event.FilterName = names[event.FilterIdx]
-				filterEvents.WithLabelValues("passed_bpf").Inc()
-				if t.filter.Verify {
-					t.verifyBpfDecision(raw, event.FilterIdx)
-				}
-			} else {
-				idx, matched := t.resolveFilter(raw)
-				if !matched {
-					filterEvents.WithLabelValues("dropped_userspace").Inc()
-					continue
-				}
-				event.FilterIdx = idx
-				event.FilterName = names[idx]
-				filterEvents.WithLabelValues("passed_userspace").Inc()
-			}
-			filterMatched.WithLabelValues(event.FilterName).Inc()
+		if t.filterSet == nil {
+			filterEvents.WithLabelValues("dropped_userspace").Inc()
+			continue
 		}
+		names := t.filterSet.Names()
+		if event.FilterIdx < uint16(len(names)) {
+			event.FilterName = names[event.FilterIdx]
+			filterEvents.WithLabelValues("passed_bpf").Inc()
+			if t.filter.Verify {
+				t.verifyBpfDecision(raw, event.FilterIdx)
+			}
+		} else {
+			idx, matched := t.resolveFilter(raw)
+			if !matched {
+				filterEvents.WithLabelValues("dropped_userspace").Inc()
+				continue
+			}
+			event.FilterIdx = idx
+			event.FilterName = names[idx]
+			filterEvents.WithLabelValues("passed_userspace").Inc()
+		}
+		filterMatched.WithLabelValues(event.FilterName).Inc()
 		// With a sink configured the consumer owns event presentation.
 		if t.events == nil {
 			t.logEvent(event)

@@ -348,8 +348,10 @@ static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us
         return KO_FILTER_UNFILTERED;
 
     struct ko_prog *prog = bpf_map_lookup_elem(&ko_filter_prog, &zero);
-    if (!prog || prog->nfilters == 0)
+    if (!prog)
         return KO_FILTER_UNFILTERED;
+    if (prog->nfilters == 0)
+        return KO_FILTER_DROP;
 
     u8 res = KO_TRI_TRUE;
     for (u32 k = 0; k < KO_MAX_PREDS; k++) {

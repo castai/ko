@@ -49,7 +49,9 @@ func TestApp(t *testing.T) {
 	exp := exporters.NewStdoutExporter(exporters.WithOutput(&out))
 
 	events := make(chan tracer.ConnEvent, 256)
-	tr := tracer.New(logging.New(), tracer.WithEvents(events))
+	tr := tracer.New(logging.New(), tracer.WithEvents(events), tracer.WithFilter(tracer.Filter{Cel: []tracer.CelFilter{
+		{Name: "lifecycle", Expr: `ko_type in [ko_type_conn_failed]`},
+	}}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

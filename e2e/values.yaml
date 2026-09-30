@@ -1,6 +1,11 @@
 config: |
   exporters:
     - name: stdout
+  tracer:
+    filters:
+      cel:
+        - name: lifecycle
+          expr: 'ko_type in [ko_type_conn_failed, ko_type_conn_closed]'
   metrics:
     addr: ":9081"
 

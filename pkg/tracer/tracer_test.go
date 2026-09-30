@@ -107,7 +107,9 @@ func TestTracerReportsConnectionFailures(t *testing.T) {
 	}
 
 	events := make(chan ConnEvent, 64)
-	tr := New(logging.New(), WithEvents(events))
+	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "lifecycle", Expr: `ko_type in [ko_type_conn_failed, ko_type_conn_closed]`},
+	}}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -557,7 +559,9 @@ func TestTracer(t *testing.T) {
 	}
 
 	events := make(chan ConnEvent, 64)
-	tr := New(logging.New(), WithEvents(events))
+	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "all", Expr: `ko_type in [ko_type_conn_failed, ko_type_conn_closed, ko_type_retransmit]`},
+	}}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

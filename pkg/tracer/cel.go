@@ -32,21 +32,20 @@ func (t *Tracer) initFilters() error {
 }
 
 func (t *Tracer) startFilters(objs *tracerObjects, stop <-chan struct{}) error {
-	if t.filterSet == nil {
-		return nil
-	}
 	key := uint32(0)
-	prog := t.filterSet.BPFProg()
-	if err := objs.KoFilterProg.Update(&key, &prog, ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("program filter rules: %w", err)
+	if t.filterSet != nil {
+		prog := t.filterSet.BPFProg()
+		if err := objs.KoFilterProg.Update(&key, &prog, ebpf.UpdateAny); err != nil {
+			return fmt.Errorf("program filter rules: %w", err)
+		}
+		t.verdictMap = objs.KoCgroupVerdict
+		t.syncOnce()
+		go t.syncVerdicts(stop)
 	}
-	t.verdictMap = objs.KoCgroupVerdict
-	t.syncOnce()
 	enabled := uint64(1)
 	if err := objs.KoFilterCfg.Update(&key, &enabled, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("enable cel filters: %w", err)
 	}
-	go t.syncVerdicts(stop)
 	return nil
 }
 
