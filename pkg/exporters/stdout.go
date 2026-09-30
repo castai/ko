@@ -81,6 +81,9 @@ func (e *StdoutExporter) logEvent(ev Event) {
 	if ev.Errno != 0 {
 		log = log.WithField("ko_error", tracer.ErrnoString(ev.Errno))
 	}
+	if ev.FilterName != "" {
+		log = log.WithField("ko_filter", ev.FilterName)
+	}
 	if c := ev.Container; c != nil {
 		log = log.With(
 			"ko_runtime", c.Runtime,

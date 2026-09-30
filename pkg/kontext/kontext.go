@@ -107,6 +107,26 @@ func New(log *logging.Logger, socketPaths ...string) (*Client, error) {
 	return nil, fmt.Errorf("CRI connect: none of %s answered: %w", strings.Join(socketPaths, ", "), lastErr)
 }
 
+func (c *Client) LookupAttrs(cgroupID uint64) (ContainerInfo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	info, ok := c.byCgroup[cgroupID]
+	if !ok {
+		return ContainerInfo{}, false
+	}
+	return *info, true
+}
+
+func (c *Client) AttrsSnapshot() map[uint64]ContainerInfo {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make(map[uint64]ContainerInfo, len(c.byCgroup))
+	for id, info := range c.byCgroup {
+		out[id] = *info
+	}
+	return out
+}
+
 func (c *Client) Close() error {
 	if c.conn != nil {
 		return c.conn()

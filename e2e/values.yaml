@@ -1,9 +1,6 @@
 config: |
   exporters:
     - name: stdout
-  tracer:
-    filters:
-      ignoreLoopback: false
   metrics:
     addr: ":9081"
 

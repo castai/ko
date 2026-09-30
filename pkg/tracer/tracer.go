@@ -16,6 +16,8 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
+
+	celfilter "github.com/castai/ko/pkg/filter"
 )
 
 //go:generate env NIX_HARDENING_ENABLE= go tool bpf2go -target arm64 -type conn_event_t -cc clang -strip llvm-strip tracer c/tracer.bpf.c -- -Ic/headers -O2 -g
@@ -55,18 +57,29 @@ func WithEvents(events chan<- ConnEvent) Option {
 
 // Filter selects which connections the tracer reports.
 type Filter struct {
-	// IgnoreLoopback skips connections whose peer is on the same host
-	// (loopback destinations): self-connects, local health probes and
-	// other traffic that never touches the network. Filtering happens in
-	// the eBPF program, so ignored connections also skip the stats and
-	// context maps.
-	IgnoreLoopback bool `yaml:"ignoreLoopback"`
+	// Cel is an ordered list of named CEL expressions. An event matching
+	// one carries the filter's index and name; events matching none are
+	// dropped, as early as the eBPF program when the expression decides
+	// from event fields and known cgroup verdicts.
+	Cel []CelFilter `yaml:"cel"`
+	// Verify re-evaluates every eBPF-decided filter in userspace and
+	// counts disagreements on ko_filter_verify_mismatches_total. Off by
+	// default: it costs one CEL evaluation per event.
+	Verify bool `yaml:"verify"`
 }
 
 // WithFilter sets the tracer's connection filters.
 func WithFilter(f Filter) Option {
 	return func(t *Tracer) {
 		t.filter = f
+	}
+}
+
+// WithAttrSource sets the resolver the CEL filters use to map cgroup IDs
+// to namespace, container and pod names.
+func WithAttrSource(s celfilter.AttrSource) Option {
+	return func(t *Tracer) {
+		t.attrs = s
 	}
 }
 
@@ -82,6 +95,9 @@ type Tracer struct {
 	log         *logging.Logger
 	events      chan<- ConnEvent
 	filter      Filter
+	attrs       celfilter.AttrSource
+	filterSet   *celfilter.Set
+	verdictMap  *ebpf.Map
 	eventsReady chan struct{}
 	readyOnce   sync.Once
 }
@@ -118,6 +134,10 @@ type ConnEvent struct {
 	// connect_failed (e.g. ECONNREFUSED, ETIMEDOUT), the reset or abort
 	// cause on conn_closed, zero on clean closes.
 	Errno uint32
+	// FilterIdx is the index of the first matching CEL filter, FilterName
+	// its name. Zero when no CEL filters are configured.
+	FilterIdx  uint16
+	FilterName string
 }
 
 // StatsSummary renders the per-connection stats carried on the event.
@@ -147,6 +167,9 @@ func (t *Tracer) Run(ctx context.Context) error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("tracer: eBPF requires Linux, got %s", runtime.GOOS)
 	}
+	if err := t.initFilters(); err != nil {
+		return err
+	}
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return fmt.Errorf("remove memlock: %w", err)
 	}
@@ -154,13 +177,6 @@ func (t *Tracer) Run(ctx context.Context) error {
 	spec, err := loadTracer()
 	if err != nil {
 		return fmt.Errorf("load bpf spec: %w", err)
-	}
-	v, ok := spec.Variables["ko_filter_ignore_loopback"]
-	if !ok {
-		return fmt.Errorf("bpf spec missing filter variable")
-	}
-	if err := v.Set(t.filter.IgnoreLoopback); err != nil {
-		return fmt.Errorf("set ignore_loopback filter: %w", err)
 	}
 	objs := tracerObjects{}
 	if err := spec.LoadAndAssign(&objs, nil); err != nil {
@@ -199,6 +215,22 @@ func (t *Tracer) Run(ctx context.Context) error {
 	if m := objs.KoRingbufDrops; m != nil {
 		go trackRingbufDrops(m, stopDrops)
 	}
+	if m := objs.KoFilterDrops; m != nil && t.filterSet != nil {
+		go trackFilterDrops(m, stopDrops)
+	}
+	// Kernel-side program runtime accounting is opt-in because it adds a
+	// small per-run cost to every BPF program on the node; it stays armed
+	// only while the agent runs.
+	stats, err := enableProgStats()
+	if err != nil {
+		t.log.Warnf("bpf program stats unavailable (needs Linux 5.8+): %v", err)
+	} else {
+		defer stats.Close()
+		go trackProgStats(stopDrops)
+	}
+	if err := t.startFilters(&objs, stopDrops); err != nil {
+		return err
+	}
 
 	t.log.Info("listening for tcp connection events")
 	for {
@@ -220,6 +252,26 @@ func (t *Tracer) Run(ctx context.Context) error {
 		}
 
 		event := decodeConnEvent(raw)
+		if t.filterSet != nil {
+			names := t.filterSet.Names()
+			if event.FilterIdx < uint16(len(names)) {
+				event.FilterName = names[event.FilterIdx]
+				filterEvents.WithLabelValues("passed_bpf").Inc()
+				if t.filter.Verify {
+					t.verifyBpfDecision(raw, event.FilterIdx)
+				}
+			} else {
+				idx, matched := t.resolveFilter(raw)
+				if !matched {
+					filterEvents.WithLabelValues("dropped_userspace").Inc()
+					continue
+				}
+				event.FilterIdx = idx
+				event.FilterName = names[idx]
+				filterEvents.WithLabelValues("passed_userspace").Inc()
+			}
+			filterMatched.WithLabelValues(event.FilterName).Inc()
+		}
 		// With a sink configured the consumer owns event presentation.
 		if t.events == nil {
 			t.logEvent(event)
@@ -242,6 +294,9 @@ func (t *Tracer) logEvent(event ConnEvent) {
 	if event.Errno != 0 {
 		msg += " error=" + ErrnoString(event.Errno)
 	}
+	if event.FilterName != "" {
+		msg += " filter=" + event.FilterName
+	}
 	t.log.Info(msg + " " + event.StatsSummary())
 }
 
@@ -260,6 +315,7 @@ func decodeConnEvent(raw tracerConnEventT) ConnEvent {
 		Retransmits: raw.Retransmits,
 		SegsOut:     raw.SegsOut,
 		Errno:       raw.Error,
+		FilterIdx:   raw.FilterIdx,
 	}
 	switch raw.Family {
 	case afInet:

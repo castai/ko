@@ -17,6 +17,26 @@ var (
 		Name: "ko_ebpf_decode_error_total",
 		Help: "eBPF events that failed to decode.",
 	})
+	filterEvents = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ko_filter_events_total",
+		Help: "Connection events by CEL filter decision.",
+	}, []string{"decision"})
+	filterMatched = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ko_filter_matched_total",
+		Help: "Connection events matched per CEL filter.",
+	}, []string{"filter"})
+	filterVerifyMismatches = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "ko_filter_verify_mismatches_total",
+		Help: "CEL filter decisions where the eBPF verdict disagreed with exact userspace evaluation; must stay zero.",
+	})
+	progRuntime = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ko_ebpf_prog_runtime_ns_total",
+		Help: "Time spent executing BPF programs, in nanoseconds. Covers every program on the node (ko's own included), so the tracer's overhead can be compared with neighbors. Requires kernel-side stats accounting, which the agent enables while running (Linux 5.8+).",
+	}, []string{"prog", "tag", "type"})
+	progRuns = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ko_ebpf_prog_runs_total",
+		Help: "Number of BPF program executions, per program on the node.",
+	}, []string{"prog", "tag", "type"})
 	ringbufDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ko_ebpf_ringbuf_dropped_total",
 		Help: "eBPF events dropped because the ring buffer was full.",

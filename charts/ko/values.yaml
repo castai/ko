@@ -22,7 +22,11 @@ config: |
     - name: stdout
   tracer:
     filters:
-      ignoreLoopback: true
+      cel:
+        - name: non-loopback
+          expr: '!ip_in(ko_remote_addr, ko_loopback_cidrs)'
+      # - name: prod-pod-degradation
+      #   expr: ko_namespace == "production" && ko_rtt_us > 100000
   metrics:
     addr: ":{{ .Values.metricsPort }}"
   kontext:

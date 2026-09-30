@@ -17,6 +17,7 @@ import (
 
 	"github.com/castai/ko/pkg/config"
 	"github.com/castai/ko/pkg/exporters"
+	celfilter "github.com/castai/ko/pkg/filter"
 	"github.com/castai/ko/pkg/kontext"
 	"github.com/castai/ko/pkg/tracer"
 	"github.com/castai/logging"
@@ -54,7 +55,7 @@ func run(ctx context.Context, log *logging.Logger, cfg config.Config) error {
 	}
 
 	events := make(chan tracer.ConnEvent, 256)
-	tr := tracer.New(log, tracer.WithEvents(events), tracer.WithFilter(cfg.Tracer.Filters))
+	tr := tracer.New(log, tracer.WithEvents(events), tracer.WithFilter(cfg.Tracer.Filters), tracer.WithAttrSource(attrSource{kctx}))
 
 	instance := New(log, tr, kctx, events, cfg.Metrics.Addr, exps...)
 	return instance.Run(ctx)
@@ -112,6 +113,43 @@ func (a *App) Run(ctx context.Context) error {
 	})
 
 	return errg.Wait()
+}
+
+type attrSource struct {
+	kctx *kontext.Client
+}
+
+func (s attrSource) Attrs(cgroupID uint64) (celfilter.CgroupAttrs, bool) {
+	if s.kctx == nil {
+		return celfilter.CgroupAttrs{}, true
+	}
+	info, err := s.kctx.GetContainerInfo(context.Background(), cgroupID)
+	if err != nil {
+		if errors.Is(err, kontext.ErrContainerNotFound) {
+			return celfilter.CgroupAttrs{}, true
+		}
+		return celfilter.CgroupAttrs{}, false
+	}
+	return containerAttrs(*info), true
+}
+
+func (s attrSource) AttrsSnapshot() map[uint64]celfilter.CgroupAttrs {
+	out := map[uint64]celfilter.CgroupAttrs{}
+	if s.kctx == nil {
+		return out
+	}
+	for id, info := range s.kctx.AttrsSnapshot() {
+		out[id] = containerAttrs(info)
+	}
+	return out
+}
+
+func containerAttrs(i kontext.ContainerInfo) celfilter.CgroupAttrs {
+	return celfilter.CgroupAttrs{
+		Namespace: i.PodNamespace,
+		Container: i.ContainerName,
+		Pod:       i.PodName,
+	}
 }
 
 func (a *App) MetricsAddr() string {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	celfilter "github.com/castai/ko/pkg/filter"
 	"github.com/castai/logging"
 	"github.com/davecgh/go-spew/spew"
 )
@@ -28,6 +29,7 @@ func TestDecodeConnEvent(t *testing.T) {
 		RttUs:       1200,
 		Retransmits: 7,
 		SegsOut:     120,
+		FilterIdx:   1,
 	}
 	raw.LocalIp = [16]byte{127, 0, 0, 1}
 	raw.RemoteIp = [16]byte{10, 0, 0, 1}
@@ -36,6 +38,9 @@ func TestDecodeConnEvent(t *testing.T) {
 
 	if e.Comm != "curl" || e.Pid != 42 || e.Errno != 111 {
 		t.Fatalf("unexpected basic fields: %+v", e)
+	}
+	if e.FilterIdx != 1 {
+		t.Fatalf("unexpected filter index: %+v", e)
 	}
 	if e.LifeUS != 2500000 || e.RTTUS != 1200 || e.Retransmits != 7 || e.SegsOut != 120 {
 		t.Fatalf("unexpected stats fields: %+v", e)
@@ -204,10 +209,10 @@ func TestTracerReportsConnectionFailures(t *testing.T) {
 	}
 }
 
-// With IgnoreLoopback set, loopback peers must not produce events at all
-// (from any process), while a same-host non-loopback peer still does: that
-// is the positive control proving the filter matches addresses, not a
-// broken tracer.
+// Loopback peers must not produce events (from any process) when the
+// filter list only matches non-loopback remotes, while a same-host
+// non-loopback peer still does: that is the positive control proving the
+// filter matches addresses, not a broken tracer.
 func TestTracerIgnoresLoopback(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("skipping: requires Linux to load eBPF programs")
@@ -222,7 +227,9 @@ func TestTracerIgnoresLoopback(t *testing.T) {
 	}
 
 	events := make(chan ConnEvent, 64)
-	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{IgnoreLoopback: true}))
+	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "non-loopback", Expr: `!ip_in(ko_remote_addr, ko_loopback_cidrs)`},
+	}}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -262,6 +269,9 @@ func TestTracerIgnoresLoopback(t *testing.T) {
 		for {
 			select {
 			case e := <-events:
+				if e.FilterName != "non-loopback" {
+					t.Fatalf("unexpected filter attribution: %+v", e)
+				}
 				if e.RemoteIP.IsLoopback() {
 					t.Fatalf("loopback event leaked through the filter: %+v", e)
 				}
@@ -282,6 +292,148 @@ func TestTracerIgnoresLoopback(t *testing.T) {
 
 	if !gotHost {
 		t.Errorf("no connect_failed event for non-loopback peer %s", host)
+	}
+}
+
+type staticAttrs struct{}
+
+func (staticAttrs) Attrs(uint64) (celfilter.CgroupAttrs, bool) {
+	return celfilter.CgroupAttrs{Namespace: "ns-a"}, true
+}
+
+func (staticAttrs) AttrsSnapshot() map[uint64]celfilter.CgroupAttrs {
+	return map[uint64]celfilter.CgroupAttrs{}
+}
+
+func TestTracerCelFilters(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping: requires Linux to load eBPF programs")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("skipping: requires root to load eBPF programs")
+	}
+
+	events := make(chan ConnEvent, 64)
+	tr := New(logging.New(), WithEvents(events), WithAttrSource(staticAttrs{}), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "degraded", Expr: "ko_retransmits > 3"},
+		{Name: "prod-ns", Expr: `ko_namespace == "ns-a" && ip_in(ko_remote_addr, ko_loopback_cidrs)`},
+	}}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tr.Run(ctx)
+	}()
+
+	port4, err := freeTCPPort("tcp", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port6, err := freeTCPPort("tcp", "::1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotV4, gotV6 bool
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) && !(gotV4 && gotV6) {
+		prime := func(network, host string, port int) {
+			l, err := net.Listen(network, net.JoinHostPort(host, strconv.Itoa(port)))
+			if err != nil {
+				return
+			}
+			if conn, err := net.DialTimeout(network, l.Addr().String(), time.Second); err == nil {
+				conn.Close()
+			}
+			l.Close()
+		}
+		prime("tcp", "127.0.0.1", port4)
+		prime("tcp", "::1", port6)
+
+	wait:
+		for {
+			select {
+			case e := <-events:
+				if e.FilterName != "prod-ns" || e.FilterIdx != 1 {
+					t.Fatalf("unexpected filter attribution: %+v", e)
+				}
+				if e.RemoteIP.Equal(net.ParseIP("127.0.0.1")) {
+					gotV4 = true
+				}
+				if e.RemoteIP.Equal(net.ParseIP("::1")) {
+					gotV6 = true
+				}
+			case <-time.After(300 * time.Millisecond):
+				break wait
+			}
+		}
+
+		select {
+		case err := <-errCh:
+			t.Fatalf("tracer exited: %v", err)
+		default:
+		}
+	}
+
+	if !gotV4 {
+		t.Errorf("no filtered ipv4 event received")
+	}
+	if !gotV6 {
+		t.Errorf("no filtered ipv6 event received")
+	}
+}
+
+func TestTracerCelFiltersDrop(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping: requires Linux to load eBPF programs")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("skipping: requires root to load eBPF programs")
+	}
+
+	events := make(chan ConnEvent, 64)
+	tr := New(logging.New(), WithEvents(events), WithAttrSource(staticAttrs{}), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "nope", Expr: `ko_namespace == "nope"`},
+	}}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tr.Run(ctx)
+	}()
+
+	port4, err := freeTCPPort("tcp", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port4)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second); err == nil {
+			conn.Close()
+		}
+		l.Close()
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("tracer exited: %v", err)
+	default:
+	}
+
+	select {
+	case e := <-events:
+		t.Fatalf("expected no events, got %+v", e)
+	default:
 	}
 }
 

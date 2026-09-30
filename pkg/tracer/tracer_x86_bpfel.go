@@ -39,19 +39,40 @@ type tracerConnEventT struct {
 	RttUs       uint32
 	Retransmits uint32
 	SegsOut     uint32
-	_           [4]byte
+	FilterIdx   uint16
+	_           [2]byte
+}
+
+type tracerKoProg struct {
+	_        structs.HostLayout
+	Nfilters uint32
+	Npreds   uint32
+	Preds    [64]struct {
+		_    structs.HostLayout
+		Val  uint64
+		Kind uint8
+		A    uint8
+		B    uint8
+		N    uint8
+		Plen [4]uint16
+		Fam  [4]uint8
+		Addr [4][16]uint8
+	}
 }
 
 // Names of all BPF objects in the ELF.
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	tracerMapKoEvents               = "ko_events"
-	tracerMapKoRingbufDrops         = "ko_ringbuf_drops"
-	tracerMapKoSockCtx              = "ko_sock_ctx"
-	tracerProgKoDestroySock         = "ko_destroy_sock"
-	tracerProgKoSockState           = "ko_sock_state"
-	tracerVarKoFilterIgnoreLoopback = "ko_filter_ignore_loopback"
+	tracerMapKoCgroupVerdict = "ko_cgroup_verdict"
+	tracerMapKoEvents        = "ko_events"
+	tracerMapKoFilterCfg     = "ko_filter_cfg"
+	tracerMapKoFilterDrops   = "ko_filter_drops"
+	tracerMapKoFilterProg    = "ko_filter_prog"
+	tracerMapKoRingbufDrops  = "ko_ringbuf_drops"
+	tracerMapKoSockCtx       = "ko_sock_ctx"
+	tracerProgKoDestroySock  = "ko_destroy_sock"
+	tracerProgKoSockState    = "ko_sock_state"
 )
 
 // loadTracer returns the embedded CollectionSpec for tracer.
@@ -104,16 +125,19 @@ type tracerProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerMapSpecs struct {
-	KoEvents       *ebpf.MapSpec `ebpf:"ko_events"`
-	KoRingbufDrops *ebpf.MapSpec `ebpf:"ko_ringbuf_drops"`
-	KoSockCtx      *ebpf.MapSpec `ebpf:"ko_sock_ctx"`
+	KoCgroupVerdict *ebpf.MapSpec `ebpf:"ko_cgroup_verdict"`
+	KoEvents        *ebpf.MapSpec `ebpf:"ko_events"`
+	KoFilterCfg     *ebpf.MapSpec `ebpf:"ko_filter_cfg"`
+	KoFilterDrops   *ebpf.MapSpec `ebpf:"ko_filter_drops"`
+	KoFilterProg    *ebpf.MapSpec `ebpf:"ko_filter_prog"`
+	KoRingbufDrops  *ebpf.MapSpec `ebpf:"ko_ringbuf_drops"`
+	KoSockCtx       *ebpf.MapSpec `ebpf:"ko_sock_ctx"`
 }
 
 // tracerVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerVariableSpecs struct {
-	KoFilterIgnoreLoopback *ebpf.VariableSpec `ebpf:"ko_filter_ignore_loopback"`
 }
 
 // tracerObjects contains all objects after they have been loaded into the kernel.
@@ -136,14 +160,22 @@ func (o *tracerObjects) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerMaps struct {
-	KoEvents       *ebpf.Map `ebpf:"ko_events"`
-	KoRingbufDrops *ebpf.Map `ebpf:"ko_ringbuf_drops"`
-	KoSockCtx      *ebpf.Map `ebpf:"ko_sock_ctx"`
+	KoCgroupVerdict *ebpf.Map `ebpf:"ko_cgroup_verdict"`
+	KoEvents        *ebpf.Map `ebpf:"ko_events"`
+	KoFilterCfg     *ebpf.Map `ebpf:"ko_filter_cfg"`
+	KoFilterDrops   *ebpf.Map `ebpf:"ko_filter_drops"`
+	KoFilterProg    *ebpf.Map `ebpf:"ko_filter_prog"`
+	KoRingbufDrops  *ebpf.Map `ebpf:"ko_ringbuf_drops"`
+	KoSockCtx       *ebpf.Map `ebpf:"ko_sock_ctx"`
 }
 
 func (m *tracerMaps) Close() error {
 	return _TracerClose(
+		m.KoCgroupVerdict,
 		m.KoEvents,
+		m.KoFilterCfg,
+		m.KoFilterDrops,
+		m.KoFilterProg,
 		m.KoRingbufDrops,
 		m.KoSockCtx,
 	)
@@ -153,7 +185,6 @@ func (m *tracerMaps) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerVariables struct {
-	KoFilterIgnoreLoopback *ebpf.Variable `ebpf:"ko_filter_ignore_loopback"`
 }
 
 // tracerPrograms contains all programs after they have been loaded into the kernel.

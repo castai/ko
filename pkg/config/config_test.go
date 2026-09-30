@@ -24,13 +24,42 @@ func TestParseTracerFilters(t *testing.T) {
 exporters: []
 tracer:
   filters:
-    ignoreLoopback: true
+    verify: true
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Tracer.Filters.IgnoreLoopback {
-		t.Fatalf("expected ignoreLoopback filter, got %+v", cfg.Tracer)
+	if !cfg.Tracer.Filters.Verify {
+		t.Fatalf("expected verify filter mode, got %+v", cfg.Tracer)
+	}
+}
+
+func TestParseTracerCelFilters(t *testing.T) {
+	cfg, err := Parse([]byte(`
+exporters: []
+tracer:
+  filters:
+    cel:
+      - name: prod
+        expr: ko_namespace == "production"
+      - name: noisy
+        expr: ip_in(ko_remote_addr, ko_private_cidrs)
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cel := cfg.Tracer.Filters.Cel
+	if len(cel) != 2 {
+		t.Fatalf("expected 2 cel filters, got %+v", cfg.Tracer.Filters)
+	}
+	if cel[0].Name != "prod" || cel[0].Expr != `ko_namespace == "production"` {
+		t.Fatalf("unexpected first filter: %+v", cel[0])
+	}
+	if cel[1].Name != "noisy" || cel[1].Expr != `ip_in(ko_remote_addr, ko_private_cidrs)` {
+		t.Fatalf("unexpected second filter: %+v", cel[1])
+	}
+	if cfg.Tracer.Filters.Verify {
+		t.Fatal("expected verify to default to off")
 	}
 }
 

@@ -15,6 +15,26 @@ Ko is Kubernetes eBPF based issues detection and root cause tool. Currently, it 
 
 Ko reports TCP connection lifecycle events as structured `tcp_event` log lines (logfmt, `ko_`-prefixed fields) meant for Loki ingestion. Two events cover every tracked connection: when a connect attempt fails and when a connection closes. Each carries the connection's final stats: lifetime, RTT, retransmits, and the socket error when the end was not clean. Only outgoing connections are tracked (sockets the workload opened via connect()); accepted and pre-existing sockets are not.
 
+### Filters
+
+Optional named CEL expressions select which events are reported. Filters are an ordered list; an event carries the first matching filter as `ko_filter`, and events matching no filter are dropped. Expressions decide in the eBPF program whenever possible: kernel-side facts (stats, CIDR matches) and per-cgroup verdicts for namespace/container/pod predicates are evaluated before the event is produced.
+
+Supported fields: `ko_namespace`, `ko_container`, `ko_pod`, `ko_rtt_us`, `ko_life_us`, `ko_retransmits`, `ko_segs_out`, `ip_in(ko_local_addr, cidrs)`, `ip_in(ko_remote_addr, cidrs)`, with the built-in CIDR lists `ko_loopback_cidrs` and `ko_private_cidrs`. Anything else fails validation at startup.
+
+Expressions that are pure conjunctions of the supported comparisons compile to an eBPF predicate stream; anything else (e.g. top-level `||`) is marked userspace and resolved exactly in Go, as is every event whose cgroup verdict is not yet known. The `ko_filter_events_total` metric's `passed_bpf`/`passed_userspace`/`dropped_bpf`/`dropped_userspace` decisions show the split. Setting `verify: true` re-evaluates every eBPF-decided event in userspace and counts disagreements on `ko_filter_verify_mismatches_total`, which must stay zero.
+
+```yaml
+tracer:
+  filters:
+    cel:
+      - name: prod-pod-degradation
+        expr: ko_namespace == "production" && ko_rtt_us > 100000
+      - name: noisy-neighbors
+        expr: ko_container not in ["app1", "app2"] || ip_in(ko_remote_addr, ko_private_cidrs)
+```
+
+Excluding loopback peers (the old `ignoreLoopback` toggle) is now a regular filter: `!ip_in(ko_remote_addr, ko_loopback_cidrs)`.
+
 Example:
 
 ```text
@@ -47,6 +67,7 @@ Stats fields are per connection: every counter is the final value read from the 
 | `ko_retransmits` | all | Total retransmits on the connection: data retransmits plus handshake SYN retries on `conn_closed`, just the SYN retries on `connect_failed`. |
 | `ko_segs_out` | all | Total segments the connection sent; the denominator for `ko_retransmits`. |
 | `ko_error` | `connect_failed`; `conn_closed` when not clean | Kernel errno for the failure or the abort/reset cause, e.g. `connection refused`, `connection reset by peer`; omitted on clean closes. |
+| `ko_filter` | when CEL filters match | Name of the first matching CEL filter. |
 | `ko_runtime` | containers | Container runtime of the workload, e.g. `containerd`. |
 | `ko_container_id` | containers | Full container ID. |
 | `ko_container` | containers | Container name. |
