@@ -13,9 +13,15 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
-      annotations: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      annotations:
+        # The agent reads its config once at startup, so pods must roll on
+        # config changes: hashing the rendered ConfigMap into the pod
+        # template makes any change a spec change and triggers the
+        # rolling update.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "ko.serviceAccountName" . }}
       {{- with .Values.priorityClassName }}

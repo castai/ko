@@ -33,6 +33,7 @@ var statsFields = map[string]uint8{
 	"ko_life_us":     FldLife,
 	"ko_retransmits": FldRetrans,
 	"ko_segs_out":    FldSegs,
+	"ko_error":       FldErrno,
 }
 
 var attrFields = map[string]uint8{

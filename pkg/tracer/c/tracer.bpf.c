@@ -125,6 +125,7 @@ struct {
 #define KO_FLD_RETRANSMITS 2
 #define KO_FLD_SEGS_OUT 3
 #define KO_FLD_TYPE 4
+#define KO_FLD_ERRNO 5
 
 #define KO_CMP_EQ 0
 #define KO_CMP_NEQ 1
@@ -346,7 +347,7 @@ static __always_inline bool ko_ip_in_set(u8 which, u16 family, struct sock_addrs
 // match could never be proven first. The only loop-carried state is the
 // stream index and the verdict, so the verifier prunes states instead of
 // exploding on them.
-static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us, u32 retransmits, u32 segs_out, u16 type, u16 family, struct sock_addrs *a)
+static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us, u32 retransmits, u32 segs_out, u32 sk_err, u16 type, u16 family, struct sock_addrs *a)
 {
     u32 zero = 0;
     u64 *cfg = bpf_map_lookup_elem(&ko_filter_cfg, &zero);
@@ -383,6 +384,9 @@ static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us
                 break;
             case KO_FLD_TYPE:
                 v = 1ULL << type;
+                break;
+            case KO_FLD_ERRNO:
+                v = sk_err;
                 break;
             }
             switch (p->b) {
@@ -488,7 +492,7 @@ static __always_inline void submit_conn_evt(u64 skaddr, conn_ctx_t *cctx, u16 ty
     u64 life_us = (now - cctx->start_ts) / 1000;
     u32 rtt_us = srtt_us >> 3;
 
-    u16 filter_idx = ko_filter_eval(at.cgroup_id, rtt_us, life_us, total_retrans, segs_out, type, family, a);
+    u16 filter_idx = ko_filter_eval(at.cgroup_id, rtt_us, life_us, total_retrans, segs_out, sk_err, type, family, a);
     if (filter_idx == KO_FILTER_DROP) {
         ko_count_filter_drop();
         return;

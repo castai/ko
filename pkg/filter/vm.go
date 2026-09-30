@@ -98,6 +98,8 @@ func eventField(f uint8, ev Event) uint64 {
 		return uint64(ev.SegsOut)
 	case FldType:
 		return 1 << uint64(ev.Type)
+	case FldErrno:
+		return uint64(ev.Errno)
 	}
 	return 0
 }

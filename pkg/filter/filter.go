@@ -43,6 +43,7 @@ const (
 	FldRetrans = 2
 	FldSegs    = 3
 	FldType    = 4
+	FldErrno   = 5
 
 	AttrNamespace = 0
 	AttrContainer = 1
@@ -122,6 +123,7 @@ type Event struct {
 	LifeUS      uint64
 	Retransmits uint32
 	SegsOut     uint32
+	Errno       uint32
 	LocalIP     net.IP
 	LocalPort   uint16
 	RemoteIP    net.IP
@@ -243,6 +245,7 @@ func activation(ev Event) map[string]any {
 		"ko_life_us":          int64(ev.LifeUS),
 		"ko_retransmits":      int64(ev.Retransmits),
 		"ko_segs_out":         int64(ev.SegsOut),
+		"ko_error":            int64(ev.Errno),
 		"ko_local_addr":       net.JoinHostPort(ipString(ev.LocalIP), strconv.Itoa(int(ev.LocalPort))),
 		"ko_remote_addr":      net.JoinHostPort(ipString(ev.RemoteIP), strconv.Itoa(int(ev.RemotePort))),
 		"ko_loopback_cidrs":   LoopbackCIDRs,

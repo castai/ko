@@ -29,6 +29,7 @@ func newEnv() (*cel.Env, error) {
 		cel.Variable("ko_life_us", cel.IntType),
 		cel.Variable("ko_retransmits", cel.IntType),
 		cel.Variable("ko_segs_out", cel.IntType),
+		cel.Variable("ko_error", cel.IntType),
 		cel.Variable("ko_local_addr", cel.StringType),
 		cel.Variable("ko_remote_addr", cel.StringType),
 		cel.Variable("ko_loopback_cidrs", cel.ListType(cel.StringType)),

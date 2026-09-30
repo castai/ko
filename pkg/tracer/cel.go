@@ -100,6 +100,7 @@ func (t *Tracer) resolveFilter(raw tracerConnEventT) (uint16, bool) {
 		LifeUS:      raw.LifeUs,
 		Retransmits: raw.Retransmits,
 		SegsOut:     raw.SegsOut,
+		Errno:       raw.Error,
 		LocalIP:     decodeIP(raw.Family, raw.LocalIp),
 		LocalPort:   raw.LocalPort,
 		RemoteIP:    decodeIP(raw.Family, raw.RemoteIp),
