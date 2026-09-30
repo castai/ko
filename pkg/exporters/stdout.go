@@ -84,6 +84,14 @@ func (e *StdoutExporter) logEvent(ev Event) {
 	if ev.FilterName != "" {
 		log = log.WithField("ko_filter", ev.FilterName)
 	}
+	if ev.Type == tracer.EventTypeProbe {
+		log = log.With(
+			"ko_snd_cwnd", ev.SndCwnd,
+			"ko_snd_ssthresh", ev.SndSsthresh,
+			"ko_snd_wnd", ev.SndWnd,
+			"ko_rcv_wnd", ev.RcvWnd,
+		)
+	}
 	if c := ev.Container; c != nil {
 		log = log.With(
 			"ko_runtime", c.Runtime,

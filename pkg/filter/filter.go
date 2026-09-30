@@ -14,6 +14,7 @@ const (
 	EvtConnFailed EventType = iota + 1
 	EvtConnClosed
 	EvtRetransmit
+	EvtProbe
 )
 
 func (t EventType) String() string {
@@ -24,6 +25,8 @@ func (t EventType) String() string {
 		return "conn_closed"
 	case EvtRetransmit:
 		return "retransmit"
+	case EvtProbe:
+		return "probe"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint16(t))
 	}
@@ -232,6 +235,7 @@ func activation(ev Event) map[string]any {
 		"ko_type_conn_failed": EvtConnFailed.String(),
 		"ko_type_conn_closed": EvtConnClosed.String(),
 		"ko_type_retransmit":  EvtRetransmit.String(),
+		"ko_type_probe":       EvtProbe.String(),
 		"ko_namespace":        ev.Namespace,
 		"ko_container":        ev.Container,
 		"ko_pod":              ev.Pod,

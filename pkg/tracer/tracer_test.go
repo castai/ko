@@ -2,6 +2,7 @@ package tracer
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"runtime"
@@ -400,6 +401,83 @@ func TestTracerRetransmits(t *testing.T) {
 
 	if !gotRetrans {
 		t.Errorf("no retransmit event for 192.0.2.1")
+	}
+}
+
+// A filter selecting only probes must see periodic congestion samples
+// while data flows, carrying the sender's cwnd and windows.
+func TestTracerProbes(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping: requires Linux to load eBPF programs")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("skipping: requires root to load eBPF programs")
+	}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go io.Copy(io.Discard, c)
+		}
+	}()
+
+	events := make(chan ConnEvent, 64)
+	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "probes", Expr: `ko_type == ko_type_probe`},
+	}}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tr.Run(ctx)
+	}()
+
+	buf := make([]byte, 4096)
+	var gotProbe bool
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) && !gotProbe {
+		conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		for i := 0; i < 10 && !gotProbe; i++ {
+			if _, err := conn.Write(buf); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			select {
+			case e := <-events:
+				if e.Type != EventTypeProbe || e.FilterName != "probes" {
+					t.Fatalf("unexpected event through probe filter: %+v", e)
+				}
+				if e.RemotePort == uint16(port) && e.SndCwnd > 0 && e.SndWnd > 0 {
+					gotProbe = true
+				}
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+		conn.Close()
+
+		select {
+		case err := <-errCh:
+			t.Fatalf("tracer exited: %v", err)
+		default:
+		}
+	}
+
+	if !gotProbe {
+		t.Errorf("no probe event for streaming connection")
 	}
 }
 

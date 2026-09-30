@@ -50,12 +50,14 @@ var typeConsts = map[string]EventType{
 	"ko_type_conn_failed": EvtConnFailed,
 	"ko_type_conn_closed": EvtConnClosed,
 	"ko_type_retransmit":  EvtRetransmit,
+	"ko_type_probe":       EvtProbe,
 }
 
 var typesByName = map[string]EventType{
 	EvtConnFailed.String(): EvtConnFailed,
 	EvtConnClosed.String(): EvtConnClosed,
 	EvtRetransmit.String(): EvtRetransmit,
+	EvtProbe.String():      EvtProbe,
 }
 
 func typeBitOf(e ast.Expr) (uint64, bool) {

@@ -21,6 +21,7 @@ func newEnv() (*cel.Env, error) {
 		cel.Variable("ko_type_conn_failed", cel.StringType),
 		cel.Variable("ko_type_conn_closed", cel.StringType),
 		cel.Variable("ko_type_retransmit", cel.StringType),
+		cel.Variable("ko_type_probe", cel.StringType),
 		cel.Variable("ko_namespace", cel.StringType),
 		cel.Variable("ko_container", cel.StringType),
 		cel.Variable("ko_pod", cel.StringType),

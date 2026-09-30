@@ -14,12 +14,13 @@ import (
 )
 
 type tracerConnCtxT struct {
-	_        structs.HostLayout
-	CgroupId uint64
-	StartTs  uint64
-	Pid      uint32
-	Comm     [16]int8
-	_        [4]byte
+	_           structs.HostLayout
+	CgroupId    uint64
+	StartTs     uint64
+	Pid         uint32
+	Comm        [16]int8
+	_           [4]byte
+	LastProbeNs uint64
 }
 
 type tracerConnEventT struct {
@@ -39,6 +40,10 @@ type tracerConnEventT struct {
 	RttUs       uint32
 	Retransmits uint32
 	SegsOut     uint32
+	SndCwnd     uint32
+	SndSsthresh uint32
+	SndWnd      uint32
+	RcvWnd      uint32
 	FilterIdx   uint16
 	_           [2]byte
 }
@@ -72,6 +77,7 @@ const (
 	tracerMapKoRingbufDrops  = "ko_ringbuf_drops"
 	tracerMapKoSockCtx       = "ko_sock_ctx"
 	tracerProgKoDestroySock  = "ko_destroy_sock"
+	tracerProgKoProbe        = "ko_probe"
 	tracerProgKoRetransmit   = "ko_retransmit"
 	tracerProgKoSockState    = "ko_sock_state"
 )
@@ -119,6 +125,7 @@ type tracerSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerProgramSpecs struct {
 	KoDestroySock *ebpf.ProgramSpec `ebpf:"ko_destroy_sock"`
+	KoProbe       *ebpf.ProgramSpec `ebpf:"ko_probe"`
 	KoRetransmit  *ebpf.ProgramSpec `ebpf:"ko_retransmit"`
 	KoSockState   *ebpf.ProgramSpec `ebpf:"ko_sock_state"`
 }
@@ -194,6 +201,7 @@ type tracerVariables struct {
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerPrograms struct {
 	KoDestroySock *ebpf.Program `ebpf:"ko_destroy_sock"`
+	KoProbe       *ebpf.Program `ebpf:"ko_probe"`
 	KoRetransmit  *ebpf.Program `ebpf:"ko_retransmit"`
 	KoSockState   *ebpf.Program `ebpf:"ko_sock_state"`
 }
@@ -201,6 +209,7 @@ type tracerPrograms struct {
 func (p *tracerPrograms) Close() error {
 	return _TracerClose(
 		p.KoDestroySock,
+		p.KoProbe,
 		p.KoRetransmit,
 		p.KoSockState,
 	)

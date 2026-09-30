@@ -19,6 +19,7 @@ enum conn_evt {
     CONN_EVT_CONNECT_FAILED = 1,
     CONN_EVT_CLOSED         = 2,
     CONN_EVT_RETRANSMIT     = 3,
+    CONN_EVT_PROBE          = 4,
 };
 
 // Raw tracepoint contexts: the original TP_PROTO arguments as a u64
@@ -37,6 +38,7 @@ typedef struct conn_ctx {
     u64 start_ts;
     u32 pid;
     char comm[16];
+    u64 last_probe_ns;
 } conn_ctx_t;
 
 // Lifecycle event of a tracked connection with its final stats, all read
@@ -61,6 +63,10 @@ struct conn_event_t {
     u32 rtt_us;
     u32 retransmits;
     u32 segs_out;
+    u32 snd_cwnd;
+    u32 snd_ssthresh;
+    u32 snd_wnd;
+    u32 rcv_wnd;
     u16 filter_idx;
 };
 
@@ -466,9 +472,17 @@ static __always_inline void submit_conn_evt(u64 skaddr, conn_ctx_t *cctx, u16 ty
     u32 srtt_us = 0;
     u32 total_retrans = 0;
     u32 segs_out = 0;
+    u32 snd_cwnd = 0;
+    u32 snd_ssthresh = 0;
+    u32 snd_wnd = 0;
+    u32 rcv_wnd = 0;
     BPF_CORE_READ_INTO(&srtt_us, tp, srtt_us);
     BPF_CORE_READ_INTO(&total_retrans, tp, total_retrans);
     BPF_CORE_READ_INTO(&segs_out, tp, segs_out);
+    BPF_CORE_READ_INTO(&snd_cwnd, tp, snd_cwnd);
+    BPF_CORE_READ_INTO(&snd_ssthresh, tp, snd_ssthresh);
+    BPF_CORE_READ_INTO(&snd_wnd, tp, snd_wnd);
+    BPF_CORE_READ_INTO(&rcv_wnd, tp, rcv_wnd);
 
     u64 now = bpf_ktime_get_ns();
     u64 life_us = (now - cctx->start_ts) / 1000;
@@ -504,6 +518,10 @@ static __always_inline void submit_conn_evt(u64 skaddr, conn_ctx_t *cctx, u16 ty
     e->rtt_us = rtt_us;
     e->retransmits = total_retrans;
     e->segs_out = segs_out;
+    e->snd_cwnd = snd_cwnd;
+    e->snd_ssthresh = snd_ssthresh;
+    e->snd_wnd = snd_wnd;
+    e->rcv_wnd = rcv_wnd;
     e->filter_idx = filter_idx;
 
     bpf_ringbuf_submit(e, 0);
@@ -595,6 +613,38 @@ int ko_retransmit(struct sock_args *ctx)
         return 0;
 
     submit_conn_evt(skaddr, &cctx, CONN_EVT_RETRANSMIT, family, sport, dport, &addrs);
+    return 0;
+}
+
+#define KO_PROBE_MIN_INTERVAL_NS 100000000ULL
+
+// A congestion-window sample of a tracked connection. The kernel fires
+// the tcp_probe tracepoint from inbound processing per segment on some
+// kernels, so each socket is rate limited here to one sample per
+// KO_PROBE_MIN_INTERVAL_NS; events carry the sender's congestion state
+// at sample time.
+SEC("raw_tp/tcp_probe")
+int ko_probe(struct sock_args *ctx)
+{
+    u64 skaddr = ctx->args[0];
+
+    conn_ctx_t *cctxp = bpf_map_lookup_elem(&ko_sock_ctx, &skaddr);
+    if (!cctxp)
+        return 0;
+    u64 now = bpf_ktime_get_ns();
+    if (now - cctxp->last_probe_ns < KO_PROBE_MIN_INTERVAL_NS)
+        return 0;
+    cctxp->last_probe_ns = now;
+    conn_ctx_t cctx = *cctxp;
+
+    u16 family = 0;
+    u16 sport = 0;
+    u16 dport = 0;
+    struct sock_addrs addrs = {};
+    if (!sock_read_endpoints(skaddr, &family, &sport, &dport, &addrs))
+        return 0;
+
+    submit_conn_evt(skaddr, &cctx, CONN_EVT_PROBE, family, sport, dport, &addrs);
     return 0;
 }
 

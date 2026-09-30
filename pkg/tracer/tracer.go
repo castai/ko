@@ -34,6 +34,7 @@ const (
 	EventTypeConnFailed = celfilter.EvtConnFailed
 	EventTypeConnClosed = celfilter.EvtConnClosed
 	EventTypeRetransmit = celfilter.EvtRetransmit
+	EventTypeProbe      = celfilter.EvtProbe
 )
 
 type Option func(*Tracer)
@@ -121,6 +122,14 @@ type ConnEvent struct {
 	// connect_failed (e.g. ECONNREFUSED, ETIMEDOUT), the reset or abort
 	// cause on conn_closed, zero on clean closes.
 	Errno uint32
+	// Congestion state of the socket at event time, meaningful on probe
+	// events: the sender's congestion window and slow-start threshold, the
+	// peer-advertised send window (receiver-limited when it is below
+	// snd_cwnd) and the locally advertised receive window.
+	SndCwnd     uint32
+	SndSsthresh uint32
+	SndWnd      uint32
+	RcvWnd      uint32
 	// FilterIdx is the index of the first matching CEL filter, FilterName
 	// its name. Zero when no CEL filters are configured.
 	FilterIdx  uint16
@@ -177,6 +186,7 @@ func (t *Tracer) Run(ctx context.Context) error {
 	}{
 		{"inet_sock_set_state", objs.KoSockState},
 		{"tcp_retransmit_skb", objs.KoRetransmit},
+		{"tcp_probe", objs.KoProbe},
 		{"tcp_destroy_sock", objs.KoDestroySock},
 	}
 	for _, rtp := range rtps {
@@ -305,6 +315,10 @@ func decodeConnEvent(raw tracerConnEventT) ConnEvent {
 		Retransmits: raw.Retransmits,
 		SegsOut:     raw.SegsOut,
 		Errno:       raw.Error,
+		SndCwnd:     raw.SndCwnd,
+		SndSsthresh: raw.SndSsthresh,
+		SndWnd:      raw.SndWnd,
+		RcvWnd:      raw.RcvWnd,
 		FilterIdx:   raw.FilterIdx,
 	}
 	switch raw.Family {
