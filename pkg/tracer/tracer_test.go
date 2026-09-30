@@ -295,6 +295,52 @@ func TestTracerIgnoresLoopback(t *testing.T) {
 	}
 }
 
+// Program runtime accounting must be explicitly enabled; once it is,
+// every loaded program shows up in the node-wide snapshot with its
+// kernel-reported runtime and run count.
+func TestProgStats(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping: requires Linux to load eBPF programs")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("skipping: requires root to load eBPF programs")
+	}
+
+	stats, err := enableProgStats()
+	if err != nil {
+		t.Skipf("skipping: bpf stats unsupported: %v", err)
+	}
+	defer stats.Close()
+
+	spec, err := loadTracer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs := tracerObjects{}
+	if err := spec.LoadAndAssign(&objs, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer objs.Close()
+
+	samples, err := snapshotProgStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ko := 0
+	for _, s := range samples {
+		if s.Name != "ko_sock_state" && s.Name != "ko_destroy_sock" {
+			continue
+		}
+		if s.Tag == "" || s.Type == "" {
+			t.Fatalf("program %s missing tag or type: %+v", s.Name, s)
+		}
+		ko++
+	}
+	if ko != 2 {
+		t.Fatalf("expected both ko programs in the snapshot, got %d of %d programs", ko, len(samples))
+	}
+}
+
 type staticAttrs struct{}
 
 func (staticAttrs) Attrs(uint64) (celfilter.CgroupAttrs, bool) {

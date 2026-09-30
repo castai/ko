@@ -61,11 +61,8 @@ type Filter struct {
 	// one carries the filter's index and name; events matching none are
 	// dropped, as early as the eBPF program when the expression decides
 	// from event fields and known cgroup verdicts.
-	Cel []CelFilter `yaml:"cel"`
-	// Verify re-evaluates every eBPF-decided filter in userspace and
-	// counts disagreements on ko_filter_verify_mismatches_total. Off by
-	// default: it costs one CEL evaluation per event.
-	Verify bool `yaml:"verify"`
+	Cel    []CelFilter `yaml:"cel"`
+	Verify bool        `yaml:"verify"`
 }
 
 // WithFilter sets the tracer's connection filters.

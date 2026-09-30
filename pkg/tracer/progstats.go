@@ -9,21 +9,12 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-// BPF_STATS_RUN_TIME from linux/bpf.h: the only stats selector the kernel
-// offers, enabling per-program run time and run count accounting. Defined
-// locally because x/sys gates the constant to Linux builds and this
-// package must compile on darwin too.
 const bpfStatsRunTime = 0
 
-// enableProgStats arms kernel-side runtime accounting for every BPF
-// program on the node while the returned handle is open. Requires Linux
-// 5.8+. The accounting adds a small per-run cost to every program, which
-// is why it is opt-in in the kernel.
 func enableProgStats() (io.Closer, error) {
 	return ebpf.EnableStats(bpfStatsRunTime)
 }
 
-// progSample is one program's kernel-side runtime accounting snapshot.
 type progSample struct {
 	Name     string
 	Tag      string
@@ -32,9 +23,6 @@ type progSample struct {
 	RunCount uint64
 }
 
-// snapshotProgStats walks every BPF program on the node and reads its
-// kernel-side runtime accounting. Programs unloading mid-iteration are
-// skipped. Values are only meaningful while bpf stats are enabled.
 func snapshotProgStats() (map[ebpf.ProgramID]progSample, error) {
 	samples := make(map[ebpf.ProgramID]progSample)
 	var id ebpf.ProgramID
@@ -67,11 +55,6 @@ func snapshotProgStats() (map[ebpf.ProgramID]progSample, error) {
 	}
 }
 
-// trackProgStats exports per-program runtime accounting as Prometheus
-// counters. The kernel reports cumulative values, so each poll adds the
-// delta since the previous one: agent restarts count from zero instead
-// of importing the pre-agent total as a single spike, and replaced
-// programs (new ids) restart their series.
 func trackProgStats(stop <-chan struct{}) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()

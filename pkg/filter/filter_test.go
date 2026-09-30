@@ -160,9 +160,6 @@ func TestRewriteNotIn(t *testing.T) {
 	}
 }
 
-// The Pred and Prog layouts must match struct ko_pred and struct ko_prog in
-// tracer.bpf.c byte for byte: cilium/ebpf marshals map values with binary
-// semantics, so any implicit padding breaks the ko_filter_prog update.
 func TestPredLayoutMatchesBPF(t *testing.T) {
 	if unsafe.Sizeof(Pred{}) != 88 {
 		t.Fatalf("pred size %d, want 88", unsafe.Sizeof(Pred{}))

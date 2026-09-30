@@ -76,6 +76,21 @@ Stats fields are per connection: every counter is the final value read from the 
 
 Container fields are present only when the event's cgroup resolves to a container.
 
+### Metrics
+
+`metrics.addr` serves Prometheus metrics. The agent enables kernel-side BPF program runtime accounting (Linux 5.8+), which adds a small per-run cost to every BPF program on the node while the agent runs.
+
+`ko_ebpf_prog_runtime_ns_total{prog,tag,type}` and `ko_ebpf_prog_runs_total` cover **every** BPF program on the node — ko's own (`ko_sock_state`, `ko_destroy_sock`) next to the rest (Cilium, other tracers) — so the tool's overhead can be compared with its neighbors:
+
+```promql
+# CPU consumed by each program
+sum by (prog) (rate(ko_ebpf_prog_runtime_ns_total[5m]))
+
+# Average time per invocation
+sum by (prog) (rate(ko_ebpf_prog_runtime_ns_total[5m]))
+  / sum by (prog) (rate(ko_ebpf_prog_runs_total[5m]))
+```
+
 ### Loki
 
 By default events are exported to stdout. Here are some example queries to get started.
