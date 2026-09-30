@@ -47,6 +47,19 @@ func TestCompileEvaluate(t *testing.T) {
 		{`ko_namespace == "prod" && ko_rtt_us > 1000`, Event{Namespace: "prod", RTTUS: 2000}, true},
 		{`ko_namespace == "prod" && ko_rtt_us > 1000`, Event{Namespace: "prod", RTTUS: 500}, false},
 		{`ko_namespace == "prod" || ko_container == "app1"`, Event{Container: "app1"}, true},
+		{`ko_type == ko_type_conn_failed`, Event{Type: EvtConnFailed}, true},
+		{`ko_type == ko_type_conn_failed`, Event{Type: EvtRetransmit}, false},
+		{`ko_type == "conn_closed"`, Event{Type: EvtConnClosed}, true},
+		{`ko_type == "nope"`, Event{Type: EvtConnClosed}, false},
+		{`ko_type != ko_type_retransmit`, Event{Type: EvtConnClosed}, true},
+		{`ko_type != ko_type_retransmit`, Event{Type: EvtRetransmit}, false},
+		{`ko_type in [ko_type_conn_failed, ko_type_conn_closed]`, Event{Type: EvtConnClosed}, true},
+		{`ko_type in [ko_type_conn_failed, ko_type_conn_closed]`, Event{Type: EvtRetransmit}, false},
+		{`ko_type in ["conn_failed", "retransmit"]`, Event{Type: EvtRetransmit}, true},
+		{`ko_type not in [ko_type_retransmit]`, Event{Type: EvtConnFailed}, true},
+		{`ko_type not in [ko_type_retransmit]`, Event{Type: EvtRetransmit}, false},
+		{`ko_type in [ko_type_conn_failed] && ko_rtt_us > 10`, Event{Type: EvtConnFailed, RTTUS: 20}, true},
+		{`ko_type in [ko_type_conn_failed] && ko_rtt_us > 10`, Event{Type: EvtConnClosed, RTTUS: 20}, false},
 		{`!(ko_namespace in ["kube-system"])`, Event{Namespace: "kube-system"}, false},
 		{`!(ko_namespace in ["kube-system"])`, Event{Namespace: "other"}, true},
 		{`!(ko_rtt_us > 100 && ko_namespace == "x")`, Event{RTTUS: 200, Namespace: "x"}, false},
@@ -221,7 +234,7 @@ func randomConj(r *rand.Rand, depth int) string {
 }
 
 func randomAtom(r *rand.Rand) string {
-	switch r.Intn(6) {
+	switch r.Intn(7) {
 	case 0:
 		kinds := []string{"==", "!=", "<", "<=", ">", ">="}
 		return fmt.Sprintf("ko_rtt_us %s %d", kinds[r.Intn(len(kinds))], r.Intn(4)*1000)
@@ -233,6 +246,12 @@ func randomAtom(r *rand.Rand) string {
 		return fmt.Sprintf("ko_pod not in [%s]", strList(r))
 	case 4:
 		return fmt.Sprintf("ip_in(ko_remote_addr, [%s])", cidrList(r, 4))
+	case 5:
+		typeNames := []string{"ko_type_conn_failed", "ko_type_conn_closed", "ko_type_retransmit"}
+		if r.Intn(2) == 0 {
+			return fmt.Sprintf("ko_type == %s", pick(r, typeNames))
+		}
+		return fmt.Sprintf("ko_type in [%s, %s]", pick(r, typeNames), pick(r, typeNames))
 	default:
 		return fmt.Sprintf("ip_in(ko_local_addr, [%s])", cidrList(r, 4))
 	}
@@ -240,6 +259,7 @@ func randomAtom(r *rand.Rand) string {
 
 func randomEvent(r *rand.Rand) Event {
 	return Event{
+		Type:        pick(r, []EventType{EvtConnFailed, EvtConnClosed, EvtRetransmit}),
 		Namespace:   pick(r, testStrs),
 		Container:   pick(r, testStrs),
 		Pod:         pick(r, testStrs),
@@ -254,7 +274,7 @@ func randomEvent(r *rand.Rand) Event {
 	}
 }
 
-func pick(r *rand.Rand, xs []string) string {
+func pick[T any](r *rand.Rand, xs []T) T {
 	return xs[r.Intn(len(xs))]
 }
 

@@ -19,7 +19,7 @@ Ko reports TCP connection lifecycle events as structured `tcp_event` log lines (
 
 Optional named CEL expressions select which events are reported. Filters are an ordered list; an event carries the first matching filter as `ko_filter`, and events matching no filter are dropped. Expressions decide in the eBPF program whenever possible: kernel-side facts (stats, CIDR matches) and per-cgroup verdicts for namespace/container/pod predicates are evaluated before the event is produced.
 
-Supported fields: `ko_namespace`, `ko_container`, `ko_pod`, `ko_rtt_us`, `ko_life_us`, `ko_retransmits`, `ko_segs_out`, `ip_in(ko_local_addr, cidrs)`, `ip_in(ko_remote_addr, cidrs)`, with the built-in CIDR lists `ko_loopback_cidrs` and `ko_private_cidrs`. Anything else fails validation at startup.
+Supported fields: `ko_namespace`, `ko_container`, `ko_pod`, `ko_rtt_us`, `ko_life_us`, `ko_retransmits`, `ko_segs_out`, `ip_in(ko_local_addr, cidrs)`, `ip_in(ko_remote_addr, cidrs)`, and `ko_type` with the constants `ko_type_conn_failed`, `ko_type_conn_closed`, `ko_type_retransmit`, with the built-in CIDR lists `ko_loopback_cidrs` and `ko_private_cidrs`. Anything else fails validation at startup.
 
 Expressions that are pure conjunctions of the supported comparisons compile to an eBPF predicate stream; anything else (e.g. top-level `||`) is marked userspace and resolved exactly in Go, as is every event whose cgroup verdict is not yet known. The `ko_filter_events_total` metric's `passed_bpf`/`passed_userspace`/`dropped_bpf`/`dropped_userspace` decisions show the split. Setting `verify: true` re-evaluates every eBPF-decided event in userspace and counts disagreements on `ko_filter_verify_mismatches_total`, which must stay zero.
 
@@ -49,6 +49,7 @@ time=2026-09-29T11:22:01.605Z level=info msg=tcp_event ko_type=conn_closed ko_co
 | --- | --- |
 | `conn_failed` | The connection attempt failed: the peer refused it (RST), it timed out, or it was aborted locally. See `ko_error`. |
 | `conn_closed` | The connection ended: either side closed it, or it was aborted (reset, timeout). `ko_error` carries the cause when the close was not clean. |
+| `retransmit` | A retransmission on a tracked connection: SYN retries while connecting, data retransmits while established. The stats fields are the connection's values at that moment. Emitted per retransmission, so constrain it with a filter: `ko_container == "api" && ko_type == ko_type_retransmit`. |
 
 ### Fields
 

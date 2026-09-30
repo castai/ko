@@ -52,9 +52,9 @@ func (s *Set) RunPreds(ev Event, verdict *uint64) uint16 {
 			if !cmpField(p.B, eventField(p.A, ev), p.Val) {
 				res = TriFalse
 			}
-		case PredIPSet, PredIPSetNot:
+		case PredIPSet:
 			m := evIPInSet(ev, p)
-			if m != (p.Kind == PredIPSet) {
+			if m != (p.B == 0) {
 				res = TriFalse
 			}
 		case PredAttr:
@@ -96,6 +96,8 @@ func eventField(f uint8, ev Event) uint64 {
 		return uint64(ev.Retransmits)
 	case FldSegs:
 		return uint64(ev.SegsOut)
+	case FldType:
+		return 1 << uint64(ev.Type)
 	}
 	return 0
 }
@@ -114,6 +116,10 @@ func cmpField(kind uint8, a, b uint64) bool {
 		return a > b
 	case CmpGe:
 		return a >= b
+	case CmpIn:
+		return a&b != 0
+	case CmpNotIn:
+		return a&b == 0
 	}
 	return false
 }

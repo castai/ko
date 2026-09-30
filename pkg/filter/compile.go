@@ -46,6 +46,60 @@ var builtinLists = map[string][]string{
 	"ko_private_cidrs":  PrivateCIDRs,
 }
 
+var typeConsts = map[string]EventType{
+	"ko_type_conn_failed": EvtConnFailed,
+	"ko_type_conn_closed": EvtConnClosed,
+	"ko_type_retransmit":  EvtRetransmit,
+}
+
+var typesByName = map[string]EventType{
+	EvtConnFailed.String(): EvtConnFailed,
+	EvtConnClosed.String(): EvtConnClosed,
+	EvtRetransmit.String(): EvtRetransmit,
+}
+
+func typeBitOf(e ast.Expr) (uint64, bool) {
+	if name, ok := identOf(e); ok {
+		if t, ok := typeConsts[name]; ok {
+			return 1 << uint64(t), true
+		}
+		return 0, false
+	}
+	v, ok := literalOf(e)
+	if !ok {
+		return 0, false
+	}
+	s, ok := v.(types.String)
+	if !ok {
+		return 0, false
+	}
+	t, ok := typesByName[string(s)]
+	if !ok {
+		return 0, false
+	}
+	return 1 << uint64(t), true
+}
+
+func typeMaskOf(e ast.Expr) (uint64, bool) {
+	if e.Kind() != ast.ListKind {
+		return 0, false
+	}
+	var mask uint64
+	n := 0
+	for _, el := range e.AsList().Elements() {
+		bit, ok := typeBitOf(el)
+		if !ok {
+			return 0, false
+		}
+		mask |= bit
+		n++
+	}
+	if n == 0 {
+		return 0, false
+	}
+	return mask, true
+}
+
 // conj compiles an expression into a flat conjunction of predicates. It
 // returns ok=false when the expression shape cannot be pushed down to eBPF
 // (top-level ||, unsupported constructs): the filter then evaluates in
@@ -74,7 +128,7 @@ func (c *compiler) conj(e ast.Expr) ([]Pred, bool) {
 		case "@in":
 			return c.inPreds(args)
 		case "ip_in":
-			return c.ipInPreds(args, PredIPSet)
+			return c.ipInPreds(args, 0)
 		}
 	}
 	return nil, false
@@ -94,7 +148,7 @@ func (c *compiler) negConj(e ast.Expr) ([]Pred, bool) {
 		case "@in":
 			return c.negInPreds(args)
 		case "ip_in":
-			return c.ipInPreds(args, PredIPSetNot)
+			return c.ipInPreds(args, 1)
 		}
 	}
 	return nil, false
@@ -141,6 +195,9 @@ func (c *compiler) cmpPreds(args []ast.Expr, kind uint8) ([]Pred, bool) {
 		return nil, false
 	}
 	if name, ok := identOf(args[0]); ok {
+		if bit, ok := typeBitOf(args[1]); ok && name == "ko_type" {
+			return typePreds(kind, bit), true
+		}
 		v, ok := literalOf(args[1])
 		if !ok {
 			return nil, false
@@ -149,6 +206,9 @@ func (c *compiler) cmpPreds(args []ast.Expr, kind uint8) ([]Pred, bool) {
 		return preds, preds != nil
 	}
 	if name, ok := identOf(args[1]); ok {
+		if bit, ok := typeBitOf(args[0]); ok && name == "ko_type" {
+			return typePreds(flipCmp(kind), bit), true
+		}
 		v, ok := literalOf(args[0])
 		if !ok {
 			return nil, false
@@ -157,6 +217,16 @@ func (c *compiler) cmpPreds(args []ast.Expr, kind uint8) ([]Pred, bool) {
 		return preds, preds != nil
 	}
 	return nil, false
+}
+
+func typePreds(kind uint8, bit uint64) []Pred {
+	switch kind {
+	case CmpEq:
+		return []Pred{{Kind: PredCmp, A: FldType, B: CmpIn, Val: bit}}
+	case CmpNeq:
+		return []Pred{{Kind: PredCmp, A: FldType, B: CmpNotIn, Val: bit}}
+	}
+	return nil
 }
 
 func (c *compiler) cmpField(name string, kind uint8, v ref.Val) []Pred {
@@ -191,6 +261,13 @@ func (c *compiler) inPreds(args []ast.Expr) ([]Pred, bool) {
 	if !ok {
 		return nil, false
 	}
+	if name == "ko_type" {
+		mask, ok := typeMaskOf(args[1])
+		if !ok {
+			return nil, false
+		}
+		return []Pred{{Kind: PredCmp, A: FldType, B: CmpIn, Val: mask}}, true
+	}
 	f, ok := attrFields[name]
 	if !ok {
 		return nil, false
@@ -209,6 +286,13 @@ func (c *compiler) negInPreds(args []ast.Expr) ([]Pred, bool) {
 	name, ok := identOf(args[0])
 	if !ok {
 		return nil, false
+	}
+	if name == "ko_type" {
+		mask, ok := typeMaskOf(args[1])
+		if !ok {
+			return nil, false
+		}
+		return []Pred{{Kind: PredCmp, A: FldType, B: CmpNotIn, Val: mask}}, true
 	}
 	f, ok := attrFields[name]
 	if !ok {
@@ -236,7 +320,7 @@ func (c *compiler) attrPred(field uint8, op uint8, values []string, neg uint8) P
 	return Pred{Kind: PredAttr, A: uint8(id), B: neg}
 }
 
-func (c *compiler) ipInPreds(args []ast.Expr, kind uint8) ([]Pred, bool) {
+func (c *compiler) ipInPreds(args []ast.Expr, neg uint8) ([]Pred, bool) {
 	if len(args) != 2 {
 		return nil, false
 	}
@@ -258,17 +342,18 @@ func (c *compiler) ipInPreds(args []ast.Expr, kind uint8) ([]Pred, bool) {
 		return nil, false
 	}
 	if len(values) == 0 {
-		if kind == PredIPSet {
+		if neg == 0 {
 			return nil, false
 		}
-		return []Pred{{Kind: kind, A: which}}, true
+		return []Pred{{Kind: PredIPSet, A: which, B: neg}}, true
 	}
 	if len(values) > MaxIPSet {
 		return nil, false
 	}
 	var p Pred
-	p.Kind = kind
+	p.Kind = PredIPSet
 	p.A = which
+	p.B = neg
 	p.N = uint8(len(values))
 	for i, v := range values {
 		pfx, err := netip.ParsePrefix(v)

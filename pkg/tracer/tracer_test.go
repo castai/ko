@@ -341,6 +341,66 @@ func TestProgStats(t *testing.T) {
 	}
 }
 
+// A filter selecting only retransmits must drop every other event type,
+// while SYN retries towards an unroutable TEST-NET address produce
+// retransmit events for the tracked connection.
+func TestTracerRetransmits(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping: requires Linux to load eBPF programs")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("skipping: requires root to load eBPF programs")
+	}
+
+	events := make(chan ConnEvent, 64)
+	tr := New(logging.New(), WithEvents(events), WithFilter(Filter{Cel: []CelFilter{
+		{Name: "retrans", Expr: `ko_type == ko_type_retransmit`},
+	}}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- tr.Run(ctx)
+	}()
+
+	var gotRetrans bool
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) && !gotRetrans {
+		conn, err := net.DialTimeout("tcp", "192.0.2.1:81", 4*time.Second)
+		if err == nil {
+			conn.Close()
+			t.Fatal("unexpected successful dial to TEST-NET address")
+		}
+
+	wait:
+		for {
+			select {
+			case e := <-events:
+				if e.Type != EventTypeRetransmit || e.FilterName != "retrans" {
+					t.Fatalf("unexpected event through retransmit filter: %+v", e)
+				}
+				if e.RemoteIP.Equal(net.ParseIP("192.0.2.1")) {
+					gotRetrans = true
+				}
+			case <-time.After(300 * time.Millisecond):
+				break wait
+			}
+		}
+
+		select {
+		case err := <-errCh:
+			t.Fatalf("tracer exited: %v", err)
+		default:
+		}
+	}
+
+	if !gotRetrans {
+		t.Errorf("no retransmit event for 192.0.2.1")
+	}
+}
+
 type staticAttrs struct{}
 
 func (staticAttrs) Attrs(uint64) (celfilter.CgroupAttrs, bool) {

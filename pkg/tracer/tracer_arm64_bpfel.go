@@ -72,6 +72,7 @@ const (
 	tracerMapKoRingbufDrops  = "ko_ringbuf_drops"
 	tracerMapKoSockCtx       = "ko_sock_ctx"
 	tracerProgKoDestroySock  = "ko_destroy_sock"
+	tracerProgKoRetransmit   = "ko_retransmit"
 	tracerProgKoSockState    = "ko_sock_state"
 )
 
@@ -118,6 +119,7 @@ type tracerSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerProgramSpecs struct {
 	KoDestroySock *ebpf.ProgramSpec `ebpf:"ko_destroy_sock"`
+	KoRetransmit  *ebpf.ProgramSpec `ebpf:"ko_retransmit"`
 	KoSockState   *ebpf.ProgramSpec `ebpf:"ko_sock_state"`
 }
 
@@ -192,12 +194,14 @@ type tracerVariables struct {
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerPrograms struct {
 	KoDestroySock *ebpf.Program `ebpf:"ko_destroy_sock"`
+	KoRetransmit  *ebpf.Program `ebpf:"ko_retransmit"`
 	KoSockState   *ebpf.Program `ebpf:"ko_sock_state"`
 }
 
 func (p *tracerPrograms) Close() error {
 	return _TracerClose(
 		p.KoDestroySock,
+		p.KoRetransmit,
 		p.KoSockState,
 	)
 }

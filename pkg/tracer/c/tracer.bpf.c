@@ -18,6 +18,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 enum conn_evt {
     CONN_EVT_CONNECT_FAILED = 1,
     CONN_EVT_CLOSED         = 2,
+    CONN_EVT_RETRANSMIT     = 3,
 };
 
 // Raw tracepoint contexts: the original TP_PROTO arguments as a u64
@@ -110,7 +111,6 @@ struct {
 // Predicate kinds, field and comparison ids mirroring pkg/filter.
 #define KO_PRED_CMP 1
 #define KO_PRED_IPSET 2
-#define KO_PRED_IPSET_NOT 3
 #define KO_PRED_ATTR 4
 #define KO_PRED_END 5
 
@@ -118,6 +118,7 @@ struct {
 #define KO_FLD_LIFE_US 1
 #define KO_FLD_RETRANSMITS 2
 #define KO_FLD_SEGS_OUT 3
+#define KO_FLD_TYPE 4
 
 #define KO_CMP_EQ 0
 #define KO_CMP_NEQ 1
@@ -125,6 +126,8 @@ struct {
 #define KO_CMP_LE 3
 #define KO_CMP_GT 4
 #define KO_CMP_GE 5
+#define KO_CMP_IN 6
+#define KO_CMP_NOT_IN 7
 
 // One predicate of the compiled CEL filter stream. Filters are laid out
 // flat: their predicates followed by an END marker. Attribute predicates
@@ -337,7 +340,7 @@ static __always_inline bool ko_ip_in_set(u8 which, u16 family, struct sock_addrs
 // match could never be proven first. The only loop-carried state is the
 // stream index and the verdict, so the verifier prunes states instead of
 // exploding on them.
-static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us, u32 retransmits, u32 segs_out, u16 family, struct sock_addrs *a)
+static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us, u32 retransmits, u32 segs_out, u16 type, u16 family, struct sock_addrs *a)
 {
     u32 zero = 0;
     u64 *cfg = bpf_map_lookup_elem(&ko_filter_cfg, &zero);
@@ -370,6 +373,9 @@ static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us
             case KO_FLD_SEGS_OUT:
                 v = segs_out;
                 break;
+            case KO_FLD_TYPE:
+                v = 1ULL << type;
+                break;
             }
             switch (p->b) {
             case KO_CMP_EQ:
@@ -390,6 +396,12 @@ static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us
             case KO_CMP_GE:
                 ok = v >= p->val;
                 break;
+            case KO_CMP_IN:
+                ok = (v & p->val) != 0;
+                break;
+            case KO_CMP_NOT_IN:
+                ok = (v & p->val) == 0;
+                break;
             default:
                 ok = false;
                 break;
@@ -397,10 +409,7 @@ static __always_inline u16 ko_filter_eval(u64 cgroup_id, u32 rtt_us, u64 life_us
             break;
         }
         case KO_PRED_IPSET:
-            ok = ko_ip_in_set(p->a, family, a, p);
-            break;
-        case KO_PRED_IPSET_NOT:
-            ok = !ko_ip_in_set(p->a, family, a, p);
+            ok = ko_ip_in_set(p->a, family, a, p) == (p->b == 0);
             break;
         case KO_PRED_ATTR: {
             u64 *verdict = bpf_map_lookup_elem(&ko_cgroup_verdict, &cgroup_id);
@@ -463,7 +472,7 @@ static __always_inline void submit_conn_evt(u64 skaddr, conn_ctx_t *cctx, u16 ty
     u64 life_us = (now - cctx->start_ts) / 1000;
     u32 rtt_us = srtt_us >> 3;
 
-    u16 filter_idx = ko_filter_eval(at.cgroup_id, rtt_us, life_us, total_retrans, segs_out, family, a);
+    u16 filter_idx = ko_filter_eval(at.cgroup_id, rtt_us, life_us, total_retrans, segs_out, type, family, a);
     if (filter_idx == KO_FILTER_DROP) {
         ko_count_filter_drop();
         return;
@@ -559,6 +568,31 @@ int ko_sock_state(struct sock_state_args *ctx)
     // connection attempt failed (RST, timeout, local abort).
     bpf_map_delete_elem(&ko_sock_ctx, &skaddr);
     submit_conn_evt(skaddr, &cctx, CONN_EVT_CONNECT_FAILED, family, sport, dport, &addrs);
+    return 0;
+}
+
+// Every retransmission of a tracked connection: SYN retries while
+// connecting and data retransmits while established. The stats fields are
+// the connection's values at retransmit time; the per-connection totals
+// on conn_closed and connect_failed stay unchanged.
+SEC("raw_tp/tcp_retransmit_skb")
+int ko_retransmit(struct sock_args *ctx)
+{
+    u64 skaddr = ctx->args[0];
+
+    conn_ctx_t *cctxp = bpf_map_lookup_elem(&ko_sock_ctx, &skaddr);
+    if (!cctxp)
+        return 0;
+    conn_ctx_t cctx = *cctxp;
+
+    u16 family = 0;
+    u16 sport = 0;
+    u16 dport = 0;
+    struct sock_addrs addrs = {};
+    if (!sock_read_endpoints(skaddr, &family, &sport, &dport, &addrs))
+        return 0;
+
+    submit_conn_evt(skaddr, &cctx, CONN_EVT_RETRANSMIT, family, sport, dport, &addrs);
     return 0;
 }
 

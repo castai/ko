@@ -17,6 +17,10 @@ var PrivateCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd
 
 func newEnv() (*cel.Env, error) {
 	return cel.NewEnv(
+		cel.Variable("ko_type", cel.StringType),
+		cel.Variable("ko_type_conn_failed", cel.StringType),
+		cel.Variable("ko_type_conn_closed", cel.StringType),
+		cel.Variable("ko_type_retransmit", cel.StringType),
 		cel.Variable("ko_namespace", cel.StringType),
 		cel.Variable("ko_container", cel.StringType),
 		cel.Variable("ko_pod", cel.StringType),

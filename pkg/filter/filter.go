@@ -8,17 +8,38 @@ import (
 	"cel.dev/cel-go/cel"
 )
 
+type EventType uint16
+
 const (
-	PredCmp      = 1
-	PredIPSet    = 2
-	PredIPSetNot = 3
-	PredAttr     = 4
-	PredEnd      = 5
+	EvtConnFailed EventType = iota + 1
+	EvtConnClosed
+	EvtRetransmit
+)
+
+func (t EventType) String() string {
+	switch t {
+	case EvtConnFailed:
+		return "conn_failed"
+	case EvtConnClosed:
+		return "conn_closed"
+	case EvtRetransmit:
+		return "retransmit"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint16(t))
+	}
+}
+
+const (
+	PredCmp   = 1
+	PredIPSet = 2
+	PredAttr  = 4
+	PredEnd   = 5
 
 	FldRTT     = 0
 	FldLife    = 1
 	FldRetrans = 2
 	FldSegs    = 3
+	FldType    = 4
 
 	AttrNamespace = 0
 	AttrContainer = 1
@@ -28,12 +49,14 @@ const (
 	AttrNeq = 1
 	AttrIn  = 2
 
-	CmpEq  = 0
-	CmpNeq = 1
-	CmpLt  = 2
-	CmpLe  = 3
-	CmpGt  = 4
-	CmpGe  = 5
+	CmpEq    = 0
+	CmpNeq   = 1
+	CmpLt    = 2
+	CmpLe    = 3
+	CmpGt    = 4
+	CmpGe    = 5
+	CmpIn    = 6
+	CmpNotIn = 7
 
 	TriFalse   = 0
 	TriTrue    = 1
@@ -88,6 +111,7 @@ type AttrSource interface {
 }
 
 type Event struct {
+	Type        EventType
 	Namespace   string
 	Container   string
 	Pod         string
@@ -204,17 +228,21 @@ func (s *Set) Evaluate(ev Event) (int, bool) {
 
 func activation(ev Event) map[string]any {
 	return map[string]any{
-		"ko_namespace":      ev.Namespace,
-		"ko_container":      ev.Container,
-		"ko_pod":            ev.Pod,
-		"ko_rtt_us":         int64(ev.RTTUS),
-		"ko_life_us":        int64(ev.LifeUS),
-		"ko_retransmits":    int64(ev.Retransmits),
-		"ko_segs_out":       int64(ev.SegsOut),
-		"ko_local_addr":     net.JoinHostPort(ipString(ev.LocalIP), strconv.Itoa(int(ev.LocalPort))),
-		"ko_remote_addr":    net.JoinHostPort(ipString(ev.RemoteIP), strconv.Itoa(int(ev.RemotePort))),
-		"ko_loopback_cidrs": LoopbackCIDRs,
-		"ko_private_cidrs":  PrivateCIDRs,
+		"ko_type":             ev.Type.String(),
+		"ko_type_conn_failed": EvtConnFailed.String(),
+		"ko_type_conn_closed": EvtConnClosed.String(),
+		"ko_type_retransmit":  EvtRetransmit.String(),
+		"ko_namespace":        ev.Namespace,
+		"ko_container":        ev.Container,
+		"ko_pod":              ev.Pod,
+		"ko_rtt_us":           int64(ev.RTTUS),
+		"ko_life_us":          int64(ev.LifeUS),
+		"ko_retransmits":      int64(ev.Retransmits),
+		"ko_segs_out":         int64(ev.SegsOut),
+		"ko_local_addr":       net.JoinHostPort(ipString(ev.LocalIP), strconv.Itoa(int(ev.LocalPort))),
+		"ko_remote_addr":      net.JoinHostPort(ipString(ev.RemoteIP), strconv.Itoa(int(ev.RemotePort))),
+		"ko_loopback_cidrs":   LoopbackCIDRs,
+		"ko_private_cidrs":    PrivateCIDRs,
 	}
 }
 

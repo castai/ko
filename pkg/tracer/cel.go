@@ -93,6 +93,7 @@ func (t *Tracer) resolveFilter(raw tracerConnEventT) (uint16, bool) {
 		attrs, known = a, ok
 	}
 	ev := celfilter.Event{
+		Type:        celfilter.EventType(raw.Type),
 		Namespace:   attrs.Namespace,
 		Container:   attrs.Container,
 		Pod:         attrs.Pod,

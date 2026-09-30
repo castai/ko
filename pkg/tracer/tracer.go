@@ -28,23 +28,13 @@ const (
 	afInet6 = 10
 )
 
-type EventType uint16
+type EventType = celfilter.EventType
 
 const (
-	EventTypeConnFailed EventType = iota + 1
-	EventTypeConnClosed
+	EventTypeConnFailed = celfilter.EvtConnFailed
+	EventTypeConnClosed = celfilter.EvtConnClosed
+	EventTypeRetransmit = celfilter.EvtRetransmit
 )
-
-func (t EventType) String() string {
-	switch t {
-	case EventTypeConnFailed:
-		return "conn_failed"
-	case EventTypeConnClosed:
-		return "conn_closed"
-	default:
-		return fmt.Sprintf("unknown(%d)", uint16(t))
-	}
-}
 
 type Option func(*Tracer)
 
@@ -186,6 +176,7 @@ func (t *Tracer) Run(ctx context.Context) error {
 		prog *ebpf.Program
 	}{
 		{"inet_sock_set_state", objs.KoSockState},
+		{"tcp_retransmit_skb", objs.KoRetransmit},
 		{"tcp_destroy_sock", objs.KoDestroySock},
 	}
 	for _, rtp := range rtps {

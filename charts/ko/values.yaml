@@ -24,9 +24,9 @@ config: |
     filters:
       cel:
         - name: non-loopback
-          expr: '!ip_in(ko_remote_addr, ko_loopback_cidrs)'
-      # - name: prod-pod-degradation
-      #   expr: ko_namespace == "production" && ko_rtt_us > 100000
+          expr: '!ip_in(ko_remote_addr, ko_loopback_cidrs) && ko_type in [ko_type_conn_failed, ko_type_conn_closed]'
+      # - name: retransmits-for-problematic
+      #   expr: ko_container == "api" && ko_type == ko_type_retransmit
   metrics:
     addr: ":{{ .Values.metricsPort }}"
   kontext:
